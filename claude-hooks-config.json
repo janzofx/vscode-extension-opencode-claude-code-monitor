@@ -1,0 +1,46 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Task|Read|Write|Edit|Bash",
+        "hooks": [{ "type": "http", "url": "http://localhost:3001/events" }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Task",
+        "hooks": [{ "type": "http", "url": "http://localhost:3001/events" }]
+      }
+    ],
+    "SubagentStop": [{ "hooks": [{ "type": "http", "url": "http://localhost:3001/events" }] }],
+    "Stop": [{ "hooks": [{ "type": "http", "url": "http://localhost:3001/events" }] }],
+    "SessionStart": [{
+      "hooks": [{
+        "type": "command",
+        "command": "curl -s -X POST http://localhost:3001/events -H \"Content-Type: application/json\" -d @-",
+        "windows": "powershell -Command \"$rawInput = [Console]::In.ReadToEnd(); Invoke-RestMethod -Uri 'http://localhost:3001/events' -Method POST -ContentType 'application/json' -Body $rawInput\""
+      }]
+    }],
+    "SubagentStart": [{
+      "hooks": [{
+        "type": "command",
+        "command": "curl -s -X POST http://localhost:3001/events -H \"Content-Type: application/json\" -d @-",
+        "windows": "powershell -Command \"$rawInput = [Console]::In.ReadToEnd(); Invoke-RestMethod -Uri 'http://localhost:3001/events' -Method POST -ContentType 'application/json' -Body $rawInput\""
+      }]
+    }],
+    "SessionEnd": [{
+      "hooks": [{
+        "type": "command",
+        "command": "curl -s -X POST http://localhost:3001/events -H \"Content-Type: application/json\" -d @-",
+        "windows": "powershell -Command \"$rawInput = [Console]::In.ReadToEnd(); Invoke-RestMethod -Uri 'http://localhost:3001/events' -Method POST -ContentType 'application/json' -Body $rawInput\""
+      }]
+    }],
+    "Notification": [{
+      "hooks": [{
+        "type": "command",
+        "command": "curl -s -X POST http://localhost:3001/events -H \"Content-Type: application/json\" -d @-",
+        "windows": "powershell -Command \"$rawInput = [Console]::In.ReadToEnd(); Invoke-RestMethod -Uri 'http://localhost:3001/events' -Method POST -ContentType 'application/json' -Body $rawInput\""
+      }]
+    }]
+  }
+}

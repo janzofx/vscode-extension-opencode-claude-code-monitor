@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx webpack:*)",
+      "Bash(npm install:*)",
+      "Bash(rm:*)",
+      "Bash(npm run:*)",
+      "Bash(node:*)",
+      "Bash(npx vsce:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}
