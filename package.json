@@ -3,11 +3,24 @@
   "displayName": "Agent Observatory",
   "description": "Read-only monitoring dashboard for Claude Code and OpenCode sessions in VS Code",
   "version": "0.1.0",
+  "publisher": "janzofx",
+  "license": "MIT",
+  "homepage": "https://github.com/janzofx/vscode-extension-opencode-claude-code-monitor#readme",
+  "bugs": {
+    "url": "https://github.com/janzofx/vscode-extension-opencode-claude-code-monitor/issues"
+  },
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "claude",
+    "opencode",
+    "monitoring",
+    "dashboard",
+    "agents"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -16,7 +29,7 @@
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/agent-observatory.git"
+    "url": "https://github.com/janzofx/vscode-extension-opencode-claude-code-monitor.git"
   },
   "contributes": {
     "commands": [
@@ -55,6 +68,9 @@
     "vsce": "^2.15.0",
     "webpack": "^5.75.0",
     "webpack-cli": "^5.0.0"
+  },
+  "overrides": {
+    "xml2js": "^0.5.0"
   },
   "dependencies": {
     "@types/express": "^4.17.17",

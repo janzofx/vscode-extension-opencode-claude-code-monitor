@@ -13,6 +13,12 @@ A read-only monitoring dashboard for Claude Code and OpenCode sessions inside VS
 - OpenCode ingestion via SQLite database (no CLI shelling)
 - Claude Code updates via hooks and JSONL transcript watching
 
+## Requirements
+
+- VS Code 1.74+
+- Claude Code installed and run at least once (JSONL transcripts exist)
+- OpenCode installed and run at least once (SQLite DB exists)
+
 ## Setup
 
 ### Claude Code Hooks
@@ -45,6 +51,12 @@ VS Code Settings:
 - Command palette: `Agent Observatory: Open Panel`
 - Use the `All` / `Active` filter in the Sessions list.
 
+## Security & Privacy
+
+- Local-only processing. No telemetry.
+- Data stays on your machine.
+- Listens on `127.0.0.1:<hooksPort>` for Claude Code hooks.
+
 ## Development
 
 ```bash
@@ -67,6 +79,7 @@ Then install the generated `.vsix` via `Extensions: Install from VSIX...`.
 
 ### "Port 3001 is in use"
 Change `Agent Observatory: Hooks Port` to a free port and update your Claude Code hooks config to match.
+The hooks URL must be `http://127.0.0.1:<port>/events`.
 
 ### No Claude Code sessions appearing
 - Verify JSONL transcripts exist under `%USERPROFILE%\.claude\...`.
