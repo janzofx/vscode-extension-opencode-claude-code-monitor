@@ -1,5 +1,4 @@
 import React from 'react';
-import type { DelegationEvent, Agent } from '../types';
 import { useDashboardStore } from '../store/dashboardStore';
 
 /**
@@ -7,7 +6,7 @@ import { useDashboardStore } from '../store/dashboardStore';
  * Shows chronological feed of delegation events
  */
 export const DelegationFeed: React.FC = () => {
-  const { delegations, agents, selectedSessionId } = useDashboardStore();
+  const { delegations, agents, sessions, selectedSessionId } = useDashboardStore();
 
   // Filter delegations for selected session
   const sessionDelegations = React.useMemo(() => {
@@ -29,6 +28,11 @@ export const DelegationFeed: React.FC = () => {
     return agent.agentType;
   };
 
+  const selectedSession = selectedSessionId ? sessions[selectedSessionId] : null;
+  const emptyMessage = selectedSession?.tool === 'codex'
+    ? 'Codex does not expose delegation events in the current local logs'
+    : 'No delegations yet';
+
   return (
     <div className="delegation-feed">
       <div className="delegation-feed-header">
@@ -36,7 +40,7 @@ export const DelegationFeed: React.FC = () => {
       </div>
       <div className="delegation-feed-items">
         {sessionDelegations.length === 0 ? (
-          <div className="empty-state">No delegations yet</div>
+          <div className="empty-state">{emptyMessage}</div>
         ) : (
           sessionDelegations.map(delegation => {
             const fromAgent = getAgentLabel(delegation.fromAgentId);

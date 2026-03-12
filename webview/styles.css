@@ -181,6 +181,10 @@ body {
   border-left-color: var(--vscode-terminal-ansiGreen);
 }
 
+.session-item.tool-codex {
+  border-left-color: var(--vscode-terminal-ansiCyan);
+}
+
 .session-item:hover {
   background-color: var(--vscode-list-hoverBackground);
 }
@@ -225,6 +229,11 @@ body {
 
 .tool-badge.tool-opencode {
   background-color: var(--vscode-terminal-ansiGreen);
+  color: var(--vscode-editor-background);
+}
+
+.tool-badge.tool-codex {
+  background-color: var(--vscode-terminal-ansiCyan);
   color: var(--vscode-editor-background);
 }
 

@@ -2,7 +2,7 @@
 // Shared Types - Used by both extension host and webview
 // ============================================================================
 
-export type Tool = 'claude-code' | 'opencode';
+export type Tool = 'claude-code' | 'opencode' | 'codex';
 
 export type SessionStatus = 'active' | 'idle' | 'completed';
 export type AgentStatus = 'active' | 'completed' | 'failed';
@@ -61,12 +61,15 @@ export interface PersistedState {
   fileEvents: FileEvent[];
 }
 
-export interface OpenCodeStateSnapshot {
+export interface ToolStateSnapshot {
   sessions: Record<string, Session>;
   agents: Record<string, Agent>;
   delegations: Record<string, DelegationEvent>;
   fileEvents: FileEvent[];
 }
+
+export type OpenCodeStateSnapshot = ToolStateSnapshot;
+export type CodexStateSnapshot = ToolStateSnapshot;
 
 export interface DashboardState {
   sessions: Record<string, Session>;

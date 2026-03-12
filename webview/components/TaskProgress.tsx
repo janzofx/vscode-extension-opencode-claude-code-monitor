@@ -1,5 +1,4 @@
 import React from 'react';
-import type { DelegationEvent, Agent, Session } from '../types';
 import { useDashboardStore } from '../store/dashboardStore';
 
 /**
@@ -37,6 +36,10 @@ export const TaskProgress: React.FC = () => {
     );
   }
 
+  const emptyMessage = selectedSession.tool === 'codex'
+    ? 'Codex does not expose delegation task progress in the current local logs'
+    : 'No tasks yet';
+
   return (
     <div className="task-progress">
       <div className="task-progress-header">
@@ -45,7 +48,7 @@ export const TaskProgress: React.FC = () => {
       </div>
       <div className="task-progress-tree">
         {sessionDelegations.length === 0 ? (
-          <div className="empty-state">No tasks yet</div>
+          <div className="empty-state">{emptyMessage}</div>
         ) : (
           <ul className="task-list">
             {sessionDelegations.map(delegation => {

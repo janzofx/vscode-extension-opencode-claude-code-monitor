@@ -124,7 +124,7 @@ export class OpenCodeWatcher {
       }
 
       const derivedState = OpenCodeParser.parseDatabase(snapshot.data);
-      this.store.replaceOpenCodeState(derivedState);
+      this.store.replaceToolState('opencode', derivedState);
       this.stateManager.refreshPanel();
       this.watermarks = snapshot.watermarks;
 

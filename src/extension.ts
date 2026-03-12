@@ -5,6 +5,7 @@ import { HookServer } from './server';
 import { PanelManager } from './panel';
 import { ClaudeCodeWatcher } from './watchers/claudeCode';
 import { OpenCodeWatcher } from './watchers/opencode';
+import { CodexWatcher } from './watchers/codex';
 
 /**
  * Extension Activation
@@ -20,7 +21,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Initialize state manager
   const stateManager = new StateManager(stateStore);
-  stateManager.markStaleClaudeSessionsIdle();
+  stateManager.markStaleSessionsIdle();
 
   const getHookPort = (): number => {
     const config = vscode.workspace.getConfiguration('agentObservatory');
@@ -47,10 +48,12 @@ export async function activate(context: vscode.ExtensionContext) {
   // Start FileSystemWatchers
   const claudeCodeWatcher = new ClaudeCodeWatcher(stateStore, stateManager);
   const opencodeWatcher = new OpenCodeWatcher(stateStore, stateManager);
+  const codexWatcher = new CodexWatcher(stateStore, stateManager);
 
   const watcherResults = await Promise.allSettled([
     claudeCodeWatcher.start(),
-    opencodeWatcher.start()
+    opencodeWatcher.start(),
+    codexWatcher.start()
   ]);
 
   if (watcherResults[0].status === 'rejected') {
@@ -59,6 +62,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
   if (watcherResults[1].status === 'rejected') {
     console.error('[AgentObservatory] Failed to start OpenCode watcher:', watcherResults[1].reason);
+  }
+
+  if (watcherResults[2].status === 'rejected') {
+    console.error('[AgentObservatory] Failed to start Codex watcher:', watcherResults[2].reason);
   }
 
   // Register command to open panel
@@ -74,11 +81,12 @@ export async function activate(context: vscode.ExtensionContext) {
       hookServer.stop();
       claudeCodeWatcher.stop();
       opencodeWatcher.stop();
+      codexWatcher.stop();
     }
   });
 
   const staleTimer = setInterval(() => {
-    stateManager.markStaleClaudeSessionsIdle();
+    stateManager.markStaleSessionsIdle();
   }, 60000);
 
   const configListener = vscode.workspace.onDidChangeConfiguration(event => {

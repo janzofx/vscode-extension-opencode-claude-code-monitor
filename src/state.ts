@@ -16,7 +16,7 @@ import type {
  */
 
 export class StateManager {
-  private static readonly CLAUDE_STALE_ACTIVE_MS = 60 * 60 * 1000;
+  private static readonly STALE_ACTIVE_MS = 60 * 60 * 1000;
   private store: StateStore;
   private panel: vscode.WebviewPanel | undefined;
 
@@ -61,17 +61,17 @@ export class StateManager {
     this.broadcast({ type: 'INITIAL_STATE', payload: this.getSnapshot() });
   }
 
-  markStaleClaudeSessionsIdle(): void {
+  markStaleSessionsIdle(): void {
     const now = Date.now();
     const { sessions } = this.store.getState();
 
     for (const session of Object.values(sessions)) {
-      if (session.tool !== 'claude-code' || session.status !== 'active') {
+      if (!['claude-code', 'codex'].includes(session.tool) || session.status !== 'active') {
         continue;
       }
 
       const lastActivityAt = session.lastActivityAt ?? session.startedAt ?? 0;
-      if (lastActivityAt > 0 && now - lastActivityAt > StateManager.CLAUDE_STALE_ACTIVE_MS) {
+      if (lastActivityAt > 0 && now - lastActivityAt > StateManager.STALE_ACTIVE_MS) {
         this.store.updateSession(session.id, { status: 'idle' });
         this.broadcast({
           type: 'SESSION_UPDATED',

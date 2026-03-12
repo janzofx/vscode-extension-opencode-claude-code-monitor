@@ -4,7 +4,7 @@ import { useDashboardStore } from '../store/dashboardStore';
 
 /**
  * SessionList Component
- * Lists all Claude Code and OpenCode sessions
+ * Lists all Claude Code, OpenCode, and Codex sessions
  */
 export const SessionList: React.FC = () => {
   const { sessions, selectedSessionId, selectSession } = useDashboardStore();
@@ -24,7 +24,16 @@ export const SessionList: React.FC = () => {
   };
 
   const getToolBadge = (tool: string): string => {
-    return tool === 'claude-code' ? 'Claude Code' : 'OpenCode';
+    switch (tool) {
+      case 'claude-code':
+        return 'Claude Code';
+      case 'opencode':
+        return 'OpenCode';
+      case 'codex':
+        return 'Codex';
+      default:
+        return tool;
+    }
   };
 
   const formatTime = (timestamp: number): string => {

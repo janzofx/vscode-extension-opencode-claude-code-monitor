@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { OpenCodeStateSnapshot, PersistedState } from './types';
+import type { PersistedState, Tool, ToolStateSnapshot } from './types';
 
 const STATE_FILE = 'state.json';
 
@@ -119,22 +119,22 @@ export class StateStore {
     this.save();
   }
 
-  replaceOpenCodeState(snapshot: OpenCodeStateSnapshot): void {
-    const existingOpenCodeSessionIds = new Set(
+  replaceToolState(tool: Tool, snapshot: ToolStateSnapshot): void {
+    const existingToolSessionIds = new Set(
       Object.values(this.state.sessions)
-        .filter(session => session.tool === 'opencode')
+        .filter(session => session.tool === tool)
         .map(session => session.id)
     );
 
-    const nextOpenCodeSessionIds = new Set(Object.keys(snapshot.sessions));
+    const nextToolSessionIds = new Set(Object.keys(snapshot.sessions));
     const affectedSessionIds = new Set<string>([
-      ...existingOpenCodeSessionIds,
-      ...nextOpenCodeSessionIds
+      ...existingToolSessionIds,
+      ...nextToolSessionIds
     ]);
 
     this.state.sessions = {
       ...Object.fromEntries(
-        Object.entries(this.state.sessions).filter(([, session]) => session.tool !== 'opencode')
+        Object.entries(this.state.sessions).filter(([, session]) => session.tool !== tool)
       ),
       ...snapshot.sessions
     };

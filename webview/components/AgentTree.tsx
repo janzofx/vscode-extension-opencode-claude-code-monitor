@@ -10,12 +10,15 @@ export const AgentTree: React.FC = () => {
   const { agents, selectedSessionId } = useDashboardStore();
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
 
-  const sessionAgents = useMemo(() => {
+  const allSessionAgents = useMemo(() => {
     if (!selectedSessionId) return [];
-    return Object.values(agents).filter(
-      agent => agent.sessionId === selectedSessionId && agent.status === 'active'
-    );
+    return Object.values(agents).filter(agent => agent.sessionId === selectedSessionId);
   }, [agents, selectedSessionId]);
+
+  const sessionAgents = useMemo(() => {
+    const activeAgents = allSessionAgents.filter(agent => agent.status === 'active');
+    return activeAgents.length > 0 ? activeAgents : allSessionAgents;
+  }, [allSessionAgents]);
 
   const sortedAgents = useMemo(() => {
     return [...sessionAgents].sort((a, b) => {
@@ -39,7 +42,7 @@ export const AgentTree: React.FC = () => {
   if (sessionAgents.length === 0) {
     return (
       <div className="empty-state">
-        No active agents for this session
+        No agents reported for this session
       </div>
     );
   }
@@ -55,7 +58,7 @@ export const AgentTree: React.FC = () => {
             title={agent.agentType}
           >
             <span className="agent-tab-label">{getAgentLabel(agent)}</span>
-            <span className="agent-tab-status">Active</span>
+            <span className="agent-tab-status">{agent.status}</span>
           </button>
         ))}
       </div>

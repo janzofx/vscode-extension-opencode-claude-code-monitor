@@ -2,15 +2,15 @@
 
 ## Project Overview
 
-Build a **read-only, real-time monitoring dashboard** for AI coding tools — specifically **Claude Code** and **OpenCode** — as a **VSCode Extension**. The dashboard lives as a panel inside VSCode, always visible while you work. It is purely observational: it displays what agents are doing, never sends commands back to them.
+Build a **read-only, real-time monitoring dashboard** for AI coding tools — specifically **Claude Code**, **OpenCode**, and **Codex** — as a **VSCode Extension**. The dashboard lives as a panel inside VSCode, always visible while you work. It is purely observational: it displays what agents are doing, never sends commands back to them.
 
-The user runs both Claude Code and OpenCode as VSCode extensions. The dashboard auto-detects all running and past sessions with zero manual setup per project.
+The user runs Claude Code, OpenCode, and Codex in the same environment. The dashboard auto-detects all running and past sessions with zero manual setup per project.
 
 ---
 
 ## Goals
 
-- See all active Claude Code and OpenCode sessions at a glance
+- See all active Claude Code, OpenCode, and Codex sessions at a glance
 - Visualize the agent → subagent delegation tree live as it builds
 - See what each agent is working on right now (current tool call)
 - See which files each agent is reading/writing
@@ -29,6 +29,7 @@ This is a **VSCode Extension** with a **Webview Panel** UI.
 | Extension host | VSCode Extension API (TypeScript) | Runs inside VSCode, no separate process needed |
 | File watching | VSCode `FileSystemWatcher` API | Built-in, no external library, reliable on Windows |
 | Claude Code events | Small Express HTTP server on `localhost:3001` | Claude Code hooks POST to it; runs inside the extension host |
+| Codex events | Local JSONL session logs under `%USERPROFILE%\\.codex\\` | No hook setup needed; watcher-based ingestion |
 | UI | React + Tailwind CSS inside a Webview panel | Full rich UI living inside VSCode |
 | Agent graph | React Flow (`@xyflow/react`) | Purpose-built for live node/edge graphs |
 | Extension → Webview | `webview.postMessage()` | Native VSCode API, no WebSocket needed |
@@ -38,7 +39,7 @@ This is a **VSCode Extension** with a **Webview Panel** UI.
 ### How it works
 
 ```
-Claude Code hooks  →  POST localhost:3001/events
+Claude Code hooks + OpenCode/Codex local watchers  →  Extension Host
                               ↓
                     Extension Host (TypeScript)
                     - Express HTTP listener
@@ -72,10 +73,12 @@ agent-observatory/
 │   ├── state.ts                   # In-memory state + broadcast to webview
 │   ├── watchers/
 │   │   ├── claudeCode.ts          # VSCode FileSystemWatcher on ~/.claude/projects/
-│   │   └── opencode.ts            # VSCode FileSystemWatcher on OpenCode storage
+│   │   ├── opencode.ts            # VSCode FileSystemWatcher on OpenCode storage
+│   │   └── codex.ts               # VSCode FileSystemWatcher on %USERPROFILE%/.codex sessions
 │   ├── parsers/
 │   │   ├── claudeCode.ts          # Parses JSONL files and hook payloads
-│   │   └── opencode.ts            # Parses OpenCode session/message JSON files
+│   │   ├── opencode.ts            # Parses OpenCode session/message JSON files
+│   │   └── codex.ts               # Parses Codex rollout JSONL files
 │   └── types.ts                   # Shared TypeScript types
 └── webview/
     ├── index.tsx                  # React entry point
@@ -246,6 +249,23 @@ When a message contains a tool call with `toolName: "task"`, that is a delegatio
 
 ---
 
+### Codex
+
+**Storage paths (Windows):**
+```
+%USERPROFILE%\.codex\sessions\
+%USERPROFILE%\.codex\archived_sessions\
+```
+
+**Session format:**
+- JSONL rollout files with `session_meta`, `event_msg`, `response_item`, and `turn_context` entries
+- `session_meta` provides the canonical session id/cwd/source
+- `response_item` contains tool/function call data used for current-task and file activity extraction
+
+**No hooks in Codex** — use `VSCode FileSystemWatcher` on `.codex` paths.
+
+---
+
 ## Extension Host — Detailed Spec
 
 ### `extension.ts` — Activation
@@ -254,7 +274,7 @@ When a message contains a tool call with `toolName: "task"`, that is a delegatio
 export function activate(context: vscode.ExtensionContext) {
   // 1. Load persisted state from JSON file (context.globalStorageUri)
   // 2. Start Express server on :3001 for Claude Code hooks
-  // 3. Start FileSystemWatchers for Claude Code + OpenCode paths
+  // 3. Start FileSystemWatchers for Claude Code + OpenCode + Codex paths
   // 4. Scan existing files on startup to hydrate state
   // 5. Register command: "agent-observatory.openPanel"
   // 6. Auto-open panel on activation
@@ -427,7 +447,7 @@ interface PersistedState {
 
 interface Session {
   id: string;
-  tool: 'claude-code' | 'opencode';
+  tool: 'claude-code' | 'opencode' | 'codex';
   cwd: string;
   projectName: string;
   status: 'active' | 'idle' | 'completed';
@@ -504,7 +524,7 @@ const panel = vscode.window.createWebviewPanel(
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  🔭 Agent Observatory          ● Claude Code  ● OpenCode        │
+│  🔭 Agent Observatory     ● Claude Code  ● OpenCode  ● Codex    │
 ├──────────────┬──────────────────────────┬───────────────────────┤
 │              │                          │                       │
 │   Sessions   │     Agent Tree           │  Delegation Feed      │
@@ -528,7 +548,7 @@ The panel header must include a **🔔 mute toggle button** for audio notificati
 ### SessionList component
 
 - List of all sessions (active first, then completed)
-- Each item: project name, tool badge (Claude Code / OpenCode), status dot (🟢 active / 🟡 working / ⚪ idle / ⚫ completed), working directory, time since started
+- Each item: project name, tool badge (Claude Code / OpenCode / Codex), status dot (🟢 active / 🟡 working / ⚪ idle / ⚫ completed), working directory, time since started
 - Clicking a session filters all other panels to that session
 - "All sessions" toggle available
 
@@ -630,12 +650,13 @@ On webview load: send `READY` to extension → extension responds with `INITIAL_
 
 ## Auto-Detection Behavior
 
-Zero per-project configuration required. When the user opens Claude Code or OpenCode in any folder:
+Zero per-project configuration required. When the user opens Claude Code, OpenCode, or Codex in any folder:
 
 1. **Claude Code:** `SessionStart` hook fires → POST to `localhost:3001/events` → instant panel update. Simultaneously, new `.jsonl` file is detected by `FileSystemWatcher`.
-2. **OpenCode:** New session JSON file appears in `project/<slug>/storage/` → `FileSystemWatcher` catches it within ~200ms → session appears in panel.
-3. **Panel re-opened:** Extension sends `INITIAL_STATE` from in-memory state (backed by JSON file) — full history restored instantly.
-4. **VSCode restarted:** JSON state file retains all history, watchers re-attach on extension activation.
+2. **OpenCode:** New session data appears in OpenCode storage/SQLite → `FileSystemWatcher` + poll cycle catches it → session appears in panel.
+3. **Codex:** New rollout JSONL appears in `%USERPROFILE%\.codex\sessions\...` → `FileSystemWatcher` catches it → session appears in panel.
+4. **Panel re-opened:** Extension sends `INITIAL_STATE` from in-memory state (backed by JSON file) — full history restored instantly.
+5. **VSCode restarted:** JSON state file retains all history, watchers re-attach on extension activation.
 
 ---
 
@@ -668,7 +689,7 @@ npm run package   # produces agent-observatory-x.x.x.vsix
 ## Implementation Notes & Edge Cases
 
 - **Audio notifications:** Play a short sound in the webview using the Web Audio API (no external files needed) on the following events: (1) `SUBAGENT_COMPLETED` message received — soft chime; (2) `SESSION_COMPLETED` received — distinct completion sound; (3) `NOTIFICATION` received (from Claude Code's native `Notification` hook — this fires when Claude genuinely needs user attention, making it the most reliable trigger) — urgent ping. Use the Web Audio API's `AudioContext` to generate tones programmatically — zero audio file dependencies. Add a mute toggle button in the panel header. Only play sounds when `document.visibilityState === 'hidden'` (VSCode window not focused) — never interrupt the user when they are actively watching the panel.
-- **FileSystemWatcher outside workspace:** Both Claude Code and OpenCode store data outside any VSCode workspace folder. A plain string glob pattern passed to `createFileSystemWatcher` only watches inside the opened workspace — events from external paths are silently ignored. Always use `new vscode.RelativePattern(vscode.Uri.file(<absolute path>), <glob>)` for watching `%USERPROFILE%\.claude\` and `%USERPROFILE%\.local\share\opencode\`. Always push watchers to `context.subscriptions` so they are disposed when the extension deactivates.
+- **FileSystemWatcher outside workspace:** Claude Code, OpenCode, and Codex store data outside any VSCode workspace folder. A plain string glob pattern passed to `createFileSystemWatcher` only watches inside the opened workspace — events from external paths are silently ignored. Always use `new vscode.RelativePattern(vscode.Uri.file(<absolute path>), <glob>)` for watching `%USERPROFILE%\.claude\`, `%USERPROFILE%\.local\share\opencode\`, and `%USERPROFILE%\.codex\`. Always push watchers to `context.subscriptions` so they are disposed when the extension deactivates.
 - **No native modules:** Never use native compiled Node.js modules (`better-sqlite3`, `sqlite3`, `bcrypt`, etc.) in the extension host. They all fail with Electron Node.js version mismatches. Use only pure JS / TypeScript packages. The entire stack in this spec is native-module-free.
 - **Windows command hooks:** `SessionStart`, `SubagentStart`, `SessionEnd`, and `Notification` use command hooks. Claude Code sends the JSON payload via **stdin** (not environment variables — `$CLAUDE_TOOL_INPUT` and similar env vars are always empty, confirmed by the Claude Code issue tracker). The bash command uses `curl -d @-` to read from stdin. The PowerShell command uses `[Console]::In.ReadToEnd()` to read stdin. The `windows` key in `settings.json` ensures Claude Code automatically runs the correct command per OS.
 - **Windows paths:** Resolve `%USERPROFILE%` via `process.env.USERPROFILE` at runtime. Use Node's cross-platform `path` module for all path operations.
@@ -715,13 +736,20 @@ npm run package   # produces agent-observatory-x.x.x.vsix
 - [ ] OpenCode delegation detection (task tool calls + parentId linking)
 - [ ] Verify OpenCode VSCode extension writes to expected storage path on first test run
 
+### Phase 5 — Codex
+- [ ] `FileSystemWatcher` for `%USERPROFILE%\.codex\sessions\**\*.jsonl`
+- [ ] `FileSystemWatcher` for `%USERPROFILE%\.codex\archived_sessions\**\*.jsonl`
+- [ ] Startup scan — parse existing Codex rollout JSONL files on activation
+- [ ] Codex parser for `session_meta`, `event_msg`, and `response_item`
+- [ ] Map Codex sessions into existing session/agent/file activity views
+
 ---
 
 ## Out of Scope
 
-- Sending any commands to Claude Code or OpenCode
+- Sending any commands to Claude Code, OpenCode, or Codex
 - Controlling or interrupting agents
 - Authentication / multi-user
 - Remote/networked sessions (local only)
 - Publishing to VSCode Marketplace (personal use only)
-- Any tool integration beyond Claude Code and OpenCode (for now)
+- Any tool integration beyond Claude Code, OpenCode, and Codex (for now)

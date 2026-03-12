@@ -1,10 +1,10 @@
 # Agent Observatory
 
-A read-only monitoring dashboard for Claude Code and OpenCode sessions inside VS Code.
+A read-only monitoring dashboard for Claude Code, OpenCode, and Codex sessions inside VS Code.
 
 ## Features
 
-- Live session list for Claude Code and OpenCode with active/idle/completed states
+- Live session list for Claude Code, OpenCode, and Codex with active/idle/completed states
 - Active/All session filters and tool color-coding
 - Agent tabs with current task details
 - Delegation feed
@@ -12,12 +12,14 @@ A read-only monitoring dashboard for Claude Code and OpenCode sessions inside VS
 - File activity list (read/write/edit)
 - OpenCode ingestion via SQLite database (no CLI shelling)
 - Claude Code updates via hooks and JSONL transcript watching
+- Codex updates via local JSONL session-log watching
 
 ## Requirements
 
 - VS Code 1.74+
 - Claude Code installed and run at least once (JSONL transcripts exist)
 - OpenCode installed and run at least once (SQLite DB exists)
+- Codex installed and run at least once (`%USERPROFILE%\\.codex\\sessions\\...` exists)
 
 ## Setup
 
@@ -36,6 +38,15 @@ OpenCode sessions are read from:
 `%USERPROFILE%\.local\share\opencode\opencode.db`
 
 Run OpenCode at least once so the database exists.
+
+### Codex
+
+Codex sessions are read from:
+
+- `%USERPROFILE%\.codex\sessions\...`
+- `%USERPROFILE%\.codex\archived_sessions\...`
+
+Run Codex at least once so the session logs exist. No extra hook setup is required.
 
 ## Configuration
 
@@ -56,6 +67,7 @@ VS Code Settings:
 - Local-only processing. No telemetry.
 - Data stays on your machine.
 - Listens on `127.0.0.1:<hooksPort>` for Claude Code hooks.
+- Reads Codex session logs locally from `%USERPROFILE%\.codex`.
 
 ## Development
 
@@ -89,3 +101,8 @@ The hooks URL must be `http://127.0.0.1:<port>/events`.
 ### No OpenCode sessions appearing
 - Verify the DB exists at `%USERPROFILE%\.local\share\opencode\opencode.db`.
 - Start a new OpenCode session and wait a few seconds for the poll cycle.
+
+### No Codex sessions appearing
+- Verify session logs exist under `%USERPROFILE%\.codex\sessions\...`.
+- Check the VS Code Output panel for "Agent Observatory" logs.
+- Start a new Codex session and wait for the watcher refresh.
