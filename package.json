@@ -2,7 +2,7 @@
   "name": "agent-observatory",
   "displayName": "Agent Observatory",
   "description": "Read-only monitoring dashboard for Claude Code, OpenCode, and Codex sessions in VS Code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "janzofx",
   "license": "MIT",
   "homepage": "https://github.com/janzofx/vscode-extension-opencode-claude-code-monitor#readme",
