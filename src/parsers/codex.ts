@@ -185,20 +185,10 @@ export class CodexParser {
         if (payload?.type === 'function_call' && payload.name) {
           return this.formatFunctionCallTask(payload.name, this.parseArguments(payload.arguments));
         }
-
-        if (payload?.type === 'message') {
-          const messageText = this.extractMessageText(payload);
-          if (messageText) {
-            return messageText;
-          }
-        }
       }
 
       if (entry.type === 'event_msg') {
         const payload = entry.payload as CodexEventMessagePayload | undefined;
-        if (payload?.type === 'agent_message' && payload.message) {
-          return payload.message;
-        }
         if (payload?.type === 'task_started') {
           return 'Task started';
         }

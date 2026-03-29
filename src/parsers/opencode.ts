@@ -188,6 +188,9 @@ export class OpenCodeParser {
         lastActivityAt
       };
 
+      const currentToolPart =
+        latestRunningToolBySession.get(session.id) || latestToolBySession.get(session.id);
+
       nextAgents[session.id] = {
         id: session.id,
         sessionId: session.id,
@@ -197,7 +200,7 @@ export class OpenCodeParser {
         startedAt: session.timeCreated,
         completedAt: status === 'completed' ? session.timeUpdated : undefined,
         lastMessage: latestAssistantTextBySession.get(session.id),
-        currentTask: this.formatCurrentTask(latestRunningToolBySession.get(session.id))
+        currentTask: this.formatCurrentTask(currentToolPart)
       };
     }
 
@@ -216,6 +219,9 @@ export class OpenCodeParser {
       );
       const matchedTask = taskMatches.byChildSessionId.get(session.id);
 
+      const currentToolPart =
+        latestRunningToolBySession.get(session.id) || latestToolBySession.get(session.id);
+
       nextAgents[session.id] = {
         id: session.id,
         sessionId: rootSessionId,
@@ -225,7 +231,7 @@ export class OpenCodeParser {
         startedAt: session.timeCreated,
         completedAt: status === 'completed' ? session.timeUpdated : undefined,
         lastMessage: latestAssistantTextBySession.get(session.id),
-        currentTask: this.formatCurrentTask(latestRunningToolBySession.get(session.id))
+        currentTask: this.formatCurrentTask(currentToolPart)
       };
     }
 
@@ -539,6 +545,10 @@ export class OpenCodeParser {
     }
 
     const toolName = toolPart.dataObject.tool || 'tool';
+    if (toolName.toLowerCase() === 'task') {
+      return `${toolName}: delegating work`;
+    }
+
     const state = toolPart.dataObject.state || {};
     const input = state.input || {};
     const description =

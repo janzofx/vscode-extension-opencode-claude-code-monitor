@@ -16,6 +16,26 @@ import type {
 export class ClaudeCodeParser {
   private static readonly STALE_ACTIVE_MS = 60 * 60 * 1000;
 
+  private static toTimestampMs(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsedNumber = Number(value);
+      if (Number.isFinite(parsedNumber)) {
+        return parsedNumber;
+      }
+
+      const parsedDate = Date.parse(value);
+      if (Number.isFinite(parsedDate)) {
+        return parsedDate;
+      }
+    }
+
+    return undefined;
+  }
+
   /**
    * Parse a JSONL transcript file
    * Each line is a separate JSON object
@@ -68,9 +88,8 @@ export class ClaudeCodeParser {
     // Extract session ID from file path
     const sessionId = sessionPath.split(/[/\\]/).pop()?.replace('.jsonl', '') || '';
 
-    // Find the first tool_use to determine activity
-    const firstToolUse = entries.find((e): e is ToolCallEntry => e.type === 'tool_use');
-    const lastTimestamp = entries.at(-1)?.timestamp || entries[0]?.timestamp || Date.now();
+    const firstTimestamp = this.toTimestampMs(entries[0]?.timestamp);
+    const lastTimestamp = this.toTimestampMs(entries.at(-1)?.timestamp) ?? firstTimestamp ?? Date.now();
     const isFresh = Date.now() - lastTimestamp <= this.STALE_ACTIVE_MS;
 
     return {
@@ -79,8 +98,8 @@ export class ClaudeCodeParser {
       cwd,
       projectName: this.getProjectName(cwd),
       status: isFresh ? 'active' : 'idle',
-      startedAt: entries[0]?.timestamp || Date.now(),
-      lastActivityAt: firstToolUse?.timestamp || lastTimestamp
+      startedAt: firstTimestamp ?? Date.now(),
+      lastActivityAt: lastTimestamp
     };
   }
 
@@ -110,6 +129,8 @@ export class ClaudeCodeParser {
 
         if (toolUse && toolUse.name === 'Task') {
           const toolCall = toolUse as ToolCallEntry & { id: string };
+          const createdAt = this.toTimestampMs(toolUse.timestamp) ?? Date.now();
+          const completedAt = this.toTimestampMs(toolResult.timestamp) ?? createdAt;
           delegations.push({
             id: `${sessionId}_${toolCall.id}`,
             sessionId,
@@ -118,8 +139,8 @@ export class ClaudeCodeParser {
             prompt: toolUse.input.description || toolUse.input.task_description || 'No description',
             result: toolResult.output || toolResult.error,
             status: 'completed',
-            createdAt: toolUse.timestamp || Date.now(),
-            completedAt: Date.now()
+            createdAt,
+            completedAt
           });
         }
       }

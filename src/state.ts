@@ -45,6 +45,7 @@ export class StateManager {
    * Used for INITIAL_STATE when webview connects
    */
   getSnapshot(): DashboardState {
+    this.normalizeMainAgents();
     const storeState = this.store.getState();
     return {
       sessions: storeState.sessions,
@@ -121,33 +122,47 @@ export class StateManager {
   }
 
   private handleSessionStart(payload: any): void {
+    const startedAt = Date.now();
     const session: Session = {
       id: payload.session_id,
       tool: 'claude-code',
       cwd: payload.cwd,
       projectName: this.getProjectName(payload.cwd),
       status: 'active',
-      startedAt: Date.now(),
+      startedAt,
       model: payload.model,
       source: payload.source,
-      lastActivityAt: Date.now()
+      lastActivityAt: startedAt
     };
+    const mainAgent = this.createMainAgent(session.id, startedAt, session.tool);
 
     this.store.updateSessions({ [session.id]: session });
+    this.store.updateAgents({ [mainAgent.id]: mainAgent });
     this.broadcast({ type: 'SESSION_CREATED', payload: session });
+    this.broadcast({ type: 'SUBAGENT_CREATED', payload: mainAgent });
   }
 
   private handleSubagentStart(payload: any): void {
     const agent: Agent = {
       id: payload.agent_id,
       sessionId: payload.session_id,
-      parentAgentId: null, // Main agent for now - we'll link properly
+      parentAgentId: payload.session_id,
       agentType: payload.agent_type,
       status: 'active',
       startedAt: Date.now()
     };
 
     this.store.updateAgents({ [agent.id]: agent });
+    const pendingDelegationId = this.getPendingDelegationId(payload.session_id);
+    if (pendingDelegationId) {
+      this.store.updateDelegation(pendingDelegationId, {
+        toAgentId: payload.agent_id
+      });
+      this.broadcast({
+        type: 'DELEGATION_STARTED',
+        payload: { ...this.store.getState().delegations[pendingDelegationId] }
+      });
+    }
     this.broadcast({ type: 'SUBAGENT_CREATED', payload: agent });
   }
 
@@ -157,6 +172,20 @@ export class StateManager {
       completedAt: Date.now(),
       lastMessage: payload.last_assistant_message
     });
+    const delegationId = this.getDelegationIdForAgent(payload.session_id, payload.agent_id);
+    if (delegationId) {
+      const existingDelegation = this.store.getState().delegations[delegationId];
+      this.store.updateDelegation(delegationId, {
+        toAgentId: payload.agent_id,
+        status: 'completed',
+        result: payload.last_assistant_message || existingDelegation.result,
+        completedAt: Date.now()
+      });
+      this.broadcast({
+        type: 'DELEGATION_COMPLETED',
+        payload: { ...this.store.getState().delegations[delegationId] }
+      });
+    }
     this.broadcast({
       type: 'SUBAGENT_COMPLETED',
       payload: { id: payload.agent_id, parentId: payload.session_id }
@@ -194,14 +223,17 @@ export class StateManager {
 
   private handlePreToolUse(payload: any): void {
     const toolName = payload.tool_name;
+    const agentId = payload.agent_id || payload.session_id;
+    this.ensureMainAgent(payload.session_id);
 
     // Update current task for agent
-    const currentTask = `${toolName}: ${this.getBriefToolDescription(payload.tool_input)}`;
+    const currentTask = this.getCurrentTaskLabel(toolName, payload.tool_input);
+    this.store.updateAgent(agentId, { currentTask });
     this.broadcast({
       type: 'CURRENT_TASK',
       payload: {
         sessionId: payload.session_id,
-        agentId: payload.session_id, // Main agent for PreToolUse
+        agentId,
         task: currentTask
       }
     });
@@ -246,27 +278,103 @@ export class StateManager {
 
     // Track delegation completion for Task tool
     if (toolName === 'Task') {
-      const delegations = this.store.getState().delegations;
-      const delegationId = Object.keys(delegations).find(id =>
-        delegations[id].sessionId === payload.session_id &&
-        delegations[id].status === 'pending'
-      );
+      const delegationId = this.getPendingDelegationId(payload.session_id);
 
       if (delegationId) {
-        const toolResponse = payload.tool_response;
-        const result = typeof toolResponse === 'string' ? toolResponse : JSON.stringify(toolResponse);
+        const existingDelegation = this.store.getState().delegations[delegationId];
+        const failureResult = this.getDelegationFailureResult(payload.tool_response);
+        const hasLinkedSubagent =
+          existingDelegation.toAgentId !== 'pending' && existingDelegation.toAgentId !== '';
 
-        this.store.updateDelegation(delegationId, {
-          status: 'completed',
-          result: result,
-          completedAt: Date.now()
-        });
-        this.broadcast({
-          type: 'DELEGATION_COMPLETED',
-          payload: { ...this.store.getState().delegations[delegationId] }
-        });
+        if (failureResult && !hasLinkedSubagent) {
+          this.store.updateDelegation(delegationId, {
+            status: 'completed',
+            result: failureResult,
+            completedAt: Date.now()
+          });
+          this.broadcast({
+            type: 'DELEGATION_COMPLETED',
+            payload: { ...this.store.getState().delegations[delegationId] }
+          });
+        }
       }
     }
+  }
+
+  private normalizeMainAgents(): void {
+    for (const session of Object.values(this.store.getState().sessions)) {
+      this.ensureMainAgent(session.id);
+    }
+  }
+
+  private ensureMainAgent(sessionId: string): void {
+    const state = this.store.getState();
+    if (state.agents[sessionId]) {
+      return;
+    }
+
+    const session = state.sessions[sessionId];
+    if (!session) {
+      return;
+    }
+
+    this.store.updateAgents({
+      [sessionId]: this.createMainAgent(sessionId, session.startedAt, session.tool)
+    });
+  }
+
+  private createMainAgent(sessionId: string, startedAt: number, tool: string): Agent {
+    return {
+      id: sessionId,
+      sessionId,
+      parentAgentId: null,
+      agentType: this.getMainAgentType(tool),
+      status: 'active',
+      startedAt
+    };
+  }
+
+  private getPendingDelegationId(sessionId: string): string | undefined {
+    const delegations = this.store.getState().delegations;
+    return Object.values(delegations)
+      .filter(delegation => delegation.sessionId === sessionId && delegation.status === 'pending')
+      .sort((left, right) => left.createdAt - right.createdAt)[0]?.id;
+  }
+
+  private getDelegationIdForAgent(sessionId: string, agentId: string): string | undefined {
+    const delegations = this.store.getState().delegations;
+
+    return Object.values(delegations)
+      .filter(delegation => delegation.sessionId === sessionId)
+      .sort((left, right) => left.createdAt - right.createdAt)
+      .find(delegation => delegation.toAgentId === agentId || delegation.toAgentId === 'pending')?.id;
+  }
+
+  private getDelegationFailureResult(toolResponse: any): string | undefined {
+    if (toolResponse === undefined || toolResponse === null) {
+      return undefined;
+    }
+
+    const serialized =
+      typeof toolResponse === 'string' ? toolResponse : JSON.stringify(toolResponse);
+    if (!serialized) {
+      return undefined;
+    }
+
+    return /(aborted|error|failed|failure)/i.test(serialized) ? serialized : undefined;
+  }
+
+  private getMainAgentType(tool: string): string {
+    if (tool === 'claude-code') {
+      return 'Claude Code';
+    }
+    if (tool === 'opencode') {
+      return 'OpenCode';
+    }
+    if (tool === 'codex') {
+      return 'Codex';
+    }
+    return 'Main Agent';
   }
 
   private getProjectName(cwd: string): string {
@@ -290,6 +398,14 @@ export class StateManager {
       return toolInput.description;
     }
     return 'No details';
+  }
+
+  private getCurrentTaskLabel(toolName: string, toolInput: any): string {
+    if (toolName.toLowerCase() === 'task') {
+      return `${toolName}: delegating work`;
+    }
+
+    return `${toolName}: ${this.getBriefToolDescription(toolInput)}`;
   }
 
   private getOperationFromToolName(toolName: string): 'read' | 'write' | 'edit' {

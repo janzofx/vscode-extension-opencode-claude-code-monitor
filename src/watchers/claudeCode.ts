@@ -74,6 +74,17 @@ export class ClaudeCodeWatcher {
     console.log('[AgentObservatory] Claude Code watchers stopped');
   }
 
+  private mergeSessionSnapshot(existing: Session | undefined, parsed: Partial<Session>): Session {
+    return {
+      ...(existing || {}),
+      ...parsed,
+      id: parsed.id || existing?.id || '',
+      tool: 'claude-code',
+      cwd: existing?.cwd || parsed.cwd || '',
+      projectName: existing?.projectName || parsed.projectName || ''
+    } as Session;
+  }
+
   private async handleNewSession(uri: vscode.Uri): Promise<void> {
     try {
       const filePath = uri.fsPath;
@@ -86,8 +97,11 @@ export class ClaudeCodeWatcher {
 
       const entries = await ClaudeCodeParser.parseJsonl(filePath);
       const session = ClaudeCodeParser.extractSessionFromJsonl(entries, filePath, cwd);
+      const existingSession = this.store.getState().sessions[session.id!];
 
-      this.store.updateSessions({ [session.id!]: session as Session });
+      this.store.updateSessions({
+        [session.id!]: this.mergeSessionSnapshot(existingSession, session)
+      });
 
       // Extract delegations from JSONL
       const delegations = ClaudeCodeParser.extractDelegations(entries, session.id!);
@@ -116,6 +130,14 @@ export class ClaudeCodeWatcher {
 
       if (!sessionId) return;
 
+      let cwd = this.extractCwdFromPath(filePath);
+      if (!cwd) {
+        cwd = path.dirname(filePath);
+      }
+
+      const parsedSession = ClaudeCodeParser.extractSessionFromJsonl(entries, filePath, cwd);
+      const existingSession = this.store.getState().sessions[sessionId];
+
       // Extract new delegations from updated JSONL
       const delegations = ClaudeCodeParser.extractDelegations(entries, sessionId);
       const delegationMap: Record<string, DelegationEvent> = {};
@@ -128,10 +150,8 @@ export class ClaudeCodeWatcher {
 
       this.store.updateDelegations(delegationMap);
 
-      // Update session last activity
-      this.store.updateSession(sessionId, {
-        lastActivityAt: Date.now(),
-        status: 'active'
+      this.store.updateSessions({
+        [sessionId]: this.mergeSessionSnapshot(existingSession, parsedSession)
       });
       this.stateManager.refreshPanel();
 
