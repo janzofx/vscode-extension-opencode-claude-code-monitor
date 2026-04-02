@@ -135,6 +135,265 @@ test('OpenCode currentTask for task tool describes delegation work instead of th
   assert.equal(parsed.agents['session-1'].currentTask, 'task: delegating work');
 });
 
+test('OpenCode currentTask becomes Task started when a new turn begins without a newer tool yet', () => {
+  const now = Date.now();
+  const snapshot = {
+    projects: [
+      { id: 'proj-1', worktree: 'C:/Projects/Test', name: 'Test Project', timeUpdated: now }
+    ],
+    sessions: [
+      {
+        id: 'session-1',
+        projectId: 'proj-1',
+        parentId: null,
+        directory: 'C:/Projects/Test',
+        title: 'Main session',
+        timeCreated: now - 1000,
+        timeUpdated: now,
+        timeArchived: null
+      }
+    ],
+    messages: [
+      {
+        id: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: now - 900,
+        timeUpdated: now - 900,
+        data: JSON.stringify({ agent: 'build', modelID: 'model', providerID: 'opencode' })
+      }
+    ],
+    parts: [
+      {
+        id: 'part-tool',
+        messageId: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: now - 800,
+        timeUpdated: now - 700,
+        data: JSON.stringify({
+          type: 'tool',
+          tool: 'read',
+          state: {
+            status: 'completed',
+            input: {
+              filePath: 'C:/Projects/Test/older-file.ts'
+            }
+          }
+        })
+      },
+      {
+        id: 'part-step',
+        messageId: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: now - 100,
+        timeUpdated: now - 100,
+        data: JSON.stringify({
+          type: 'step-start'
+        })
+      }
+    ]
+  };
+
+  const parsed = OpenCodeParser.parseDatabase(snapshot);
+
+  assert.equal(parsed.agents['session-1'].currentTask, 'Task started');
+});
+
+test('OpenCode currentTask still prefers the latest real tool when it is newer than step markers', () => {
+  const now = Date.now();
+  const snapshot = {
+    projects: [
+      { id: 'proj-1', worktree: 'C:/Projects/Test', name: 'Test Project', timeUpdated: now }
+    ],
+    sessions: [
+      {
+        id: 'session-1',
+        projectId: 'proj-1',
+        parentId: null,
+        directory: 'C:/Projects/Test',
+        title: 'Main session',
+        timeCreated: now - 1000,
+        timeUpdated: now,
+        timeArchived: null
+      }
+    ],
+    messages: [
+      {
+        id: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: now - 900,
+        timeUpdated: now - 900,
+        data: JSON.stringify({ agent: 'build', modelID: 'model', providerID: 'opencode' })
+      }
+    ],
+    parts: [
+      {
+        id: 'part-step',
+        messageId: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: now - 200,
+        timeUpdated: now - 200,
+        data: JSON.stringify({
+          type: 'step-start'
+        })
+      },
+      {
+        id: 'part-tool',
+        messageId: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: now - 100,
+        timeUpdated: now - 50,
+        data: JSON.stringify({
+          type: 'tool',
+          tool: 'edit',
+          state: {
+            status: 'completed',
+            input: {
+              filePath: 'C:/Projects/Test/newer-file.ts'
+            }
+          }
+        })
+      }
+    ]
+  };
+
+  const parsed = OpenCodeParser.parseDatabase(snapshot);
+
+  assert.equal(parsed.agents['session-1'].currentTask, 'edit: C:/Projects/Test/newer-file.ts');
+});
+
+test('OpenCode keeps a fresh unarchived session active after a step-finish stop', () => {
+  const now = Date.now();
+  const snapshot = {
+    projects: [
+      { id: 'proj-1', worktree: 'C:/Projects/Test', name: 'Test Project', timeUpdated: now }
+    ],
+    sessions: [
+      {
+        id: 'session-1',
+        projectId: 'proj-1',
+        parentId: null,
+        directory: 'C:/Projects/Test',
+        title: 'Main session',
+        timeCreated: now - 2000,
+        timeUpdated: now - 50,
+        timeArchived: null
+      }
+    ],
+    messages: [
+      {
+        id: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: now - 200,
+        timeUpdated: now - 50,
+        data: JSON.stringify({ agent: 'build', modelID: 'model', providerID: 'opencode' })
+      }
+    ],
+    parts: [
+      {
+        id: 'part-stop',
+        messageId: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: now - 100,
+        timeUpdated: now - 100,
+        data: JSON.stringify({
+          type: 'step-finish',
+          reason: 'stop'
+        })
+      }
+    ]
+  };
+
+  const parsed = OpenCodeParser.parseDatabase(snapshot);
+
+  assert.equal(parsed.sessions['session-1'].status, 'active');
+  assert.equal(parsed.agents['session-1'].status, 'active');
+});
+
+test('OpenCode marks archived sessions as completed', () => {
+  const now = Date.now();
+  const snapshot = {
+    projects: [
+      { id: 'proj-1', worktree: 'C:/Projects/Test', name: 'Test Project', timeUpdated: now }
+    ],
+    sessions: [
+      {
+        id: 'session-1',
+        projectId: 'proj-1',
+        parentId: null,
+        directory: 'C:/Projects/Test',
+        title: 'Main session',
+        timeCreated: now - 5000,
+        timeUpdated: now - 100,
+        timeArchived: now - 50
+      }
+    ],
+    messages: [
+      {
+        id: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: now - 1000,
+        timeUpdated: now - 100,
+        data: JSON.stringify({ agent: 'build', modelID: 'model', providerID: 'opencode' })
+      }
+    ],
+    parts: []
+  };
+
+  const parsed = OpenCodeParser.parseDatabase(snapshot);
+
+  assert.equal(parsed.sessions['session-1'].status, 'completed');
+  assert.equal(parsed.agents['session-1'].status, 'completed');
+});
+
+test('OpenCode marks stale unarchived sessions as idle', () => {
+  const now = Date.now();
+  const staleTime = now - (2 * 60 * 60 * 1000);
+  const snapshot = {
+    projects: [
+      { id: 'proj-1', worktree: 'C:/Projects/Test', name: 'Test Project', timeUpdated: staleTime }
+    ],
+    sessions: [
+      {
+        id: 'session-1',
+        projectId: 'proj-1',
+        parentId: null,
+        directory: 'C:/Projects/Test',
+        title: 'Main session',
+        timeCreated: staleTime,
+        timeUpdated: staleTime,
+        timeArchived: null
+      }
+    ],
+    messages: [
+      {
+        id: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: staleTime,
+        timeUpdated: staleTime,
+        data: JSON.stringify({ agent: 'build', modelID: 'model', providerID: 'opencode' })
+      }
+    ],
+    parts: [
+      {
+        id: 'part-stop',
+        messageId: 'msg-1',
+        sessionId: 'session-1',
+        timeCreated: staleTime,
+        timeUpdated: staleTime,
+        data: JSON.stringify({
+          type: 'step-finish',
+          reason: 'stop'
+        })
+      }
+    ]
+  };
+
+  const parsed = OpenCodeParser.parseDatabase(snapshot);
+
+  assert.equal(parsed.sessions['session-1'].status, 'idle');
+  assert.equal(parsed.agents['session-1'].status, 'completed');
+});
+
 test('Codex currentTask prefers the latest function call instead of assistant prose', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-parser-test-'));
   const sessionPath = path.join(tempDir, 'session.jsonl');

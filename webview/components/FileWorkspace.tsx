@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import type { FileEvent, Agent } from '../types';
+import React, { useEffect, useState } from 'react';
+import type { FileEvent } from '../types';
 import { useDashboardStore } from '../store/dashboardStore';
 
 /**
@@ -39,7 +39,7 @@ export const FileWorkspace: React.FC = () => {
       }, 3000);
       return () => clearTimeout(timer);
     }
-  }, [sessionFileEvents]);
+  }, [sessionFileEvents, files]);
 
   const getAgentLabel = (agentId: string): string => {
     const agent = agents[agentId];
@@ -57,35 +57,37 @@ export const FileWorkspace: React.FC = () => {
     }
   };
 
-  if (files.length === 0) {
-    return (
-      <div className="empty-state">
-        No file activity yet for this session
-      </div>
-    );
-  }
-
   return (
     <div className="file-workspace">
-      <div className="file-flat-list">
-        {files.map(file => {
-          const isHighlighted = highlightedFile === file.filePath;
-          const agentLabel = getAgentLabel(file.agentId);
-
-          return (
-            <div
-              key={file.filePath}
-              className={`file-item ${isHighlighted ? 'highlighted' : ''}`}
-            >
-              <span className={`file-op-badge file-op-${file.operation}`}>
-                {getOperationLabel(file.operation)}
-              </span>
-              <span className="file-name">{file.filePath}</span>
-              <span className="file-agents">[{agentLabel}]</span>
-            </div>
-          );
-        })}
+      <div className="panel-header file-workspace-header">
+        <h2>File Activity</h2>
       </div>
+
+      {files.length === 0 ? (
+        <div className="empty-state">
+          No file activity yet for this session
+        </div>
+      ) : (
+        <div className="file-flat-list">
+          {files.map(file => {
+            const isHighlighted = highlightedFile === file.filePath;
+            const agentLabel = getAgentLabel(file.agentId);
+
+            return (
+              <div
+                key={file.filePath}
+                className={`file-item ${isHighlighted ? 'highlighted' : ''}`}
+              >
+                <span className={`file-op-badge file-op-${file.operation}`}>
+                  {getOperationLabel(file.operation)}
+                </span>
+                <span className="file-name">{file.filePath}</span>
+                <span className="file-agents">{agentLabel}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

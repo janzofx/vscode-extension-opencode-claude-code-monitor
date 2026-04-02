@@ -12,28 +12,32 @@ import { vscode } from './vscode';
  * Main App Component
  */
 
-// Debug: Log when app mounts
 if (typeof window !== 'undefined') {
   console.log('[AgentObservatory Webview] App mounted');
 }
+
 const App: React.FC = () => {
-  const { connectionStatus, isMuted, toggleMute, handleExtensionMessage, selectedSessionId } = useDashboardStore();
+  const {
+    connectionStatus,
+    isMuted,
+    toggleMute,
+    handleExtensionMessage,
+    selectedSessionId,
+    sessions
+  } = useDashboardStore();
   const [isReady, setIsReady] = useState(false);
+  const selectedSession = selectedSessionId ? sessions[selectedSessionId] : null;
 
   useEffect(() => {
-    // Send READY message to extension
     vscode.postMessage({ type: 'READY' });
 
-    // Listen for messages from extension
     const handleMessage = (event: MessageEvent) => {
       const message: ExtensionMessage = event.data;
 
-      // If we receive INITIAL_STATE, mark as ready and process it
       if (message.type === 'INITIAL_STATE') {
         setIsReady(true);
         handleExtensionMessage(message);
       } else if (isReady) {
-        // Only process other messages after INITIAL_STATE
         handleExtensionMessage(message);
       }
     };
@@ -45,16 +49,47 @@ const App: React.FC = () => {
     };
   }, [handleExtensionMessage, isReady]);
 
+  const getToolLabel = (tool: string | undefined): string => {
+    switch (tool) {
+      case 'claude-code':
+        return 'Claude Code';
+      case 'opencode':
+        return 'OpenCode';
+      case 'codex':
+        return 'Codex';
+      default:
+        return 'No Session';
+    }
+  };
+
   return (
     <div className="app">
       <header className="app-header">
-        <div className="header-title">
-          <span className="icon">🔭</span>
-          <span>Agent Observatory</span>
+        <div className="header-brand">
+          <span className="brand-mark" aria-hidden="true" />
+          <div className="brand-copy">
+            <span className="brand-eyebrow">Agent Observatory</span>
+            <span className="brand-title">Mission Control</span>
+          </div>
         </div>
+
+        <div className="header-focus">
+          <span className="header-focus-label">Focus</span>
+          {selectedSession ? (
+            <div className="header-focus-content">
+              <span className="header-focus-name">{selectedSession.projectName}</span>
+              <span className={`header-focus-tool tool-${selectedSession.tool}`}>
+                {getToolLabel(selectedSession.tool)}
+              </span>
+            </div>
+          ) : (
+            <span className="header-focus-empty">No session selected</span>
+          )}
+        </div>
+
         <div className="header-controls">
           <div className={`connection-status ${connectionStatus}`}>
-            {connectionStatus === 'connected' ? '●' : '○'}
+            <span className="connection-indicator" aria-hidden="true" />
             <span>{connectionStatus}</span>
           </div>
           <button
@@ -62,64 +97,61 @@ const App: React.FC = () => {
             onClick={toggleMute}
             title={isMuted ? 'Unmute notifications' : 'Mute notifications'}
           >
-            {isMuted ? '🔇' : '🔔'}
+            <span className={`mute-indicator ${isMuted ? 'muted' : 'armed'}`} aria-hidden="true" />
+            <span>{isMuted ? 'Muted' : 'Alerts'}</span>
           </button>
         </div>
       </header>
 
-      <main className="app-main">
-        <section className="sidebar">
-          <SessionList />
-        </section>
+      <div className="app-body">
+        <main className="control-grid">
+          <section className="control-zone fleet-zone">
+            <SessionList />
+          </section>
 
-        <section className="center-panel">
-          {selectedSessionId ? (
-            <AgentTree />
-          ) : (
-            <div className="placeholder">
-              Select a session to view agent tree
-            </div>
-          )}
-        </section>
+          <section className="control-zone command-zone">
+            {selectedSessionId ? (
+              <DelegationFeed />
+            ) : (
+              <div className="placeholder">
+                Select a session to monitor delegation flow
+              </div>
+            )}
+          </section>
 
-        <section className="right-panel">
-          {selectedSessionId ? (
-            <DelegationFeed />
-          ) : (
-            <div className="placeholder">
-              Select a session to view delegation feed
-            </div>
-          )}
-        </section>
-      </main>
+          <section className="control-zone inspector-zone">
+            {selectedSessionId ? (
+              <AgentTree />
+            ) : (
+              <div className="placeholder">
+                Select a session to inspect active agents
+              </div>
+            )}
+          </section>
+        </main>
 
-      <footer className="app-footer">
-        <div className="app-footer-tabs">
-          <div className="app-footer-tab">
-            <div className="app-footer-tab-header">
-              <h2>Progress</h2>
-            </div>
-            <div className="app-footer-tab-content">
-              {selectedSessionId ? (
-                <div className="progress-grid">
-                  <div className="progress-column">
-                    <div className="progress-column-header">Tasks</div>
-                    <TaskProgress />
-                  </div>
-                  <div className="progress-column">
-                    <div className="progress-column-header">Files</div>
-                    <FileWorkspace />
-                  </div>
-                </div>
-              ) : (
-                <div className="placeholder">
-                  Select a session to view details
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </footer>
+        <footer className="telemetry-dock">
+          <section className="dock-zone dock-zone-progress">
+            {selectedSessionId ? (
+              <TaskProgress />
+            ) : (
+              <div className="placeholder">
+                Select a session to view task telemetry
+              </div>
+            )}
+          </section>
+
+          <section className="dock-zone dock-zone-files">
+            {selectedSessionId ? (
+              <FileWorkspace />
+            ) : (
+              <div className="placeholder">
+                Select a session to view file activity
+              </div>
+            )}
+          </section>
+        </footer>
+      </div>
     </div>
   );
 };

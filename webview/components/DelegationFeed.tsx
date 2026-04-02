@@ -8,7 +8,6 @@ import { useDashboardStore } from '../store/dashboardStore';
 export const DelegationFeed: React.FC = () => {
   const { delegations, agents, sessions, selectedSessionId } = useDashboardStore();
 
-  // Filter delegations for selected session
   const sessionDelegations = React.useMemo(() => {
     if (!selectedSessionId) return [];
     return Object.values(delegations)
@@ -35,9 +34,10 @@ export const DelegationFeed: React.FC = () => {
 
   return (
     <div className="delegation-feed">
-      <div className="delegation-feed-header">
-        <h2>Delegation Feed</h2>
+      <div className="panel-header">
+        <h2>Command Lane</h2>
       </div>
+
       <div className="delegation-feed-items">
         {sessionDelegations.length === 0 ? (
           <div className="empty-state">{emptyMessage}</div>
@@ -49,29 +49,32 @@ export const DelegationFeed: React.FC = () => {
 
             return (
               <div key={delegation.id} className={`delegation-item ${isPending ? 'pending' : 'completed'}`}>
-                <div className="delegation-timestamp">
-                  [{formatTime(delegation.createdAt)}]
+                <div className="delegation-item-top">
+                  <span className="delegation-timestamp">{formatTime(delegation.createdAt)}</span>
+                  <span className={`delegation-state-chip ${isPending ? 'pending' : 'completed'}`}>
+                    {isPending ? 'pending' : 'completed'}
+                  </span>
                 </div>
-                <div className="delegation-content">
-                  <div className="delegation-header">
-                    <span className="agent-from">{fromAgent}</span>
-                    <span className="arrow">→</span>
-                    <span className="agent-to">{toAgent}</span>
-                    <span className="status-icon">{isPending ? '⟳' : '✓'}</span>
-                  </div>
-                  <div className="delegation-prompt">
-                    "{delegation.prompt}"
-                  </div>
-                  {delegation.result && (
-                    <div className="delegation-result">
-                      <span className="result-prefix">{toAgent} → main-agent</span>
-                      "{delegation.result.substring(0, 200)}{delegation.result.length > 200 ? '...' : ''}"
-                    </div>
-                  )}
-                  {isPending && (
-                    <div className="delegation-in-progress">⟳ in progress...</div>
-                  )}
+
+                <div className="delegation-route">
+                  <span className="agent-from">{fromAgent}</span>
+                  <span className="route-arrow">to</span>
+                  <span className="agent-to">{toAgent}</span>
                 </div>
+
+                <div className="delegation-prompt">{delegation.prompt}</div>
+
+                {delegation.result && (
+                  <div className="delegation-result">
+                    <span className="result-prefix">{toAgent} to main-agent</span>
+                    {delegation.result.substring(0, 200)}
+                    {delegation.result.length > 200 ? '...' : ''}
+                  </div>
+                )}
+
+                {isPending && (
+                  <div className="delegation-in-progress">Awaiting completion</div>
+                )}
               </div>
             );
           })

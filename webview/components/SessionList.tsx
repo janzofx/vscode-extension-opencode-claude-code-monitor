@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import type { Session } from '../types';
 import { useDashboardStore } from '../store/dashboardStore';
 
 /**
@@ -13,15 +12,6 @@ export const SessionList: React.FC = () => {
   const sessionsArray = Object.values(sessions).sort((a, b) => {
     return b.startedAt - a.startedAt;
   });
-
-  const getStatusDot = (status: string): string => {
-    switch (status) {
-      case 'active': return '🟢';
-      case 'idle': return '⚪';
-      case 'completed': return '⚫';
-      default: return '⚪';
-    }
-  };
 
   const getToolBadge = (tool: string): string => {
     switch (tool) {
@@ -55,7 +45,7 @@ export const SessionList: React.FC = () => {
   return (
     <div className="session-list">
       <div className="session-list-header">
-        <h2>Sessions</h2>
+        <h2>Session Fleet</h2>
         <div className="session-list-actions">
           <div className="session-list-filters">
             <button
@@ -87,17 +77,22 @@ export const SessionList: React.FC = () => {
           visibleSessions.map(session => (
             <div
               key={session.id}
-              className={`session-item tool-${session.tool} ${selectedSessionId === session.id ? 'selected' : ''}`}
+              className={`session-item tool-${session.tool} status-${session.status} ${selectedSessionId === session.id ? 'selected' : ''}`}
               onClick={() => selectSession(session.id)}
             >
-              <div className="session-item-header">
-                <span className="status-dot">{getStatusDot(session.status)}</span>
-                <span className="session-title">{session.projectName}</span>
-                <span className={`tool-badge tool-${session.tool}`}>{getToolBadge(session.tool)}</span>
-              </div>
-              <div className="session-item-details">
+              <span className="session-item-signal" aria-hidden="true" />
+              <div className="session-item-body">
+                <div className="session-item-header">
+                  <span className="session-title">{session.projectName}</span>
+                  <span className={`session-status-chip status-${session.status}`}>
+                    {session.status}
+                  </span>
+                </div>
+                <div className="session-item-meta">
+                  <span className={`tool-badge tool-${session.tool}`}>{getToolBadge(session.tool)}</span>
+                  <span className="session-time">{formatTime(session.startedAt)}</span>
+                </div>
                 <div className="session-cwd">{session.cwd}</div>
-                <div className="session-time">{formatTime(session.startedAt)}</div>
               </div>
             </div>
           ))

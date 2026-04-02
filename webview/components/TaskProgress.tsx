@@ -8,12 +8,10 @@ import { useDashboardStore } from '../store/dashboardStore';
 export const TaskProgress: React.FC = () => {
   const { delegations, agents, sessions, selectedSessionId } = useDashboardStore();
 
-  // Get selected session
   const selectedSession = React.useMemo(() => {
     return selectedSessionId ? sessions[selectedSessionId] : null;
   }, [sessions, selectedSessionId]);
 
-  // Filter delegations for selected session
   const sessionDelegations = React.useMemo(() => {
     if (!selectedSessionId) return [];
     return Object.values(delegations)
@@ -42,10 +40,11 @@ export const TaskProgress: React.FC = () => {
 
   return (
     <div className="task-progress">
-      <div className="task-progress-header">
+      <div className="panel-header task-progress-header">
         <h2>Task Progress</h2>
         <span className="session-name">{selectedSession.projectName}</span>
       </div>
+
       <div className="task-progress-tree">
         {sessionDelegations.length === 0 ? (
           <div className="empty-state">{emptyMessage}</div>
@@ -57,8 +56,8 @@ export const TaskProgress: React.FC = () => {
 
               return (
                 <li key={delegation.id} className={`task-item ${isCompleted ? 'completed' : 'pending'}`}>
-                  <span className="task-checkbox">
-                    {isCompleted ? '[✓]' : '[ ]'}
+                  <span className={`task-state-chip ${isCompleted ? 'completed' : 'pending'}`}>
+                    {isCompleted ? 'DONE' : 'WAIT'}
                   </span>
                   <span className="task-text">
                     {delegation.prompt.substring(0, 60)}

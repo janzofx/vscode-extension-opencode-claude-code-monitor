@@ -48,24 +48,31 @@ export const AgentTree: React.FC = () => {
   }
 
   return (
-    <div className="agent-tabs">
-      <div className="agent-tabs-header">
-        {sortedAgents.map(agent => (
-          <button
-            key={agent.id}
-            className={`agent-tab ${selectedAgent?.id === agent.id ? 'active' : ''}`}
-            onClick={() => setActiveAgentId(agent.id)}
-            title={agent.agentType}
-          >
-            <span className="agent-tab-label">{getAgentLabel(agent)}</span>
-            <span className="agent-tab-status">{agent.status}</span>
-          </button>
-        ))}
+    <div className="agent-inspector">
+      <div className="panel-header">
+        <h2>Inspector</h2>
       </div>
-      <div className="agent-tabs-content">
-        <div className="agent-task-label">Current Task</div>
-        <div className="agent-task-value">
-          {selectedAgent?.currentTask ? selectedAgent.currentTask : 'No active task reported'}
+
+      <div className="agent-tabs">
+        <div className="agent-tabs-header">
+          {sortedAgents.map(agent => (
+            <button
+              key={agent.id}
+              className={`agent-tab status-${agent.status} ${selectedAgent?.id === agent.id ? 'active' : ''}`}
+              onClick={() => setActiveAgentId(agent.id)}
+              title={agent.agentType}
+            >
+              <span className="agent-tab-label">{getAgentLabel(agent)}</span>
+              <span className="agent-tab-status">{agent.status}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="agent-tabs-content">
+          <div className="agent-task-label">Current Task</div>
+          <div className="agent-task-value">
+            {selectedAgent?.currentTask ? selectedAgent.currentTask : 'No active task reported'}
+          </div>
         </div>
       </div>
     </div>

@@ -152,8 +152,7 @@ export class OpenCodeParser {
     const partsBySession = this.groupBySession(parsedParts);
     const latestAssistantTextBySession = this.buildLatestAssistantText(partsBySession);
     const latestToolBySession = this.buildLatestToolParts(partsBySession);
-    const latestRunningToolBySession = this.buildLatestRunningToolParts(partsBySession);
-    const latestStepFinishBySession = this.buildLatestStepFinishParts(partsBySession);
+    const latestStepStartBySession = this.buildLatestStepStartParts(partsBySession);
     const taskMatches = this.matchTaskDelegations(parsedParts, sessionsById);
 
     const nextSessions: Record<string, Session> = {};
@@ -168,13 +167,10 @@ export class OpenCodeParser {
     for (const session of rootSessions) {
       const project = projectsById.get(session.projectId);
       const lastActivityAt = this.getLastActivityAt(session, partsBySession, messagesBySession);
-      const status = this.getSessionStatus(
-        session,
-        lastActivityAt,
-        latestToolBySession.get(session.id),
-        latestStepFinishBySession.get(session.id)
-      );
+      const status = this.getSessionStatus(session, lastActivityAt);
       const model = this.getSessionModel(messagesBySession.get(session.id) || []);
+      const currentToolPart = latestToolBySession.get(session.id);
+      const latestStepStart = latestStepStartBySession.get(session.id);
 
       nextSessions[session.id] = {
         id: session.id,
@@ -188,9 +184,6 @@ export class OpenCodeParser {
         lastActivityAt
       };
 
-      const currentToolPart =
-        latestRunningToolBySession.get(session.id) || latestToolBySession.get(session.id);
-
       nextAgents[session.id] = {
         id: session.id,
         sessionId: session.id,
@@ -200,7 +193,7 @@ export class OpenCodeParser {
         startedAt: session.timeCreated,
         completedAt: status === 'completed' ? session.timeUpdated : undefined,
         lastMessage: latestAssistantTextBySession.get(session.id),
-        currentTask: this.formatCurrentTask(currentToolPart)
+        currentTask: this.formatCurrentTask(currentToolPart, latestStepStart)
       };
     }
 
@@ -211,16 +204,10 @@ export class OpenCodeParser {
 
       const rootSessionId = getRootSessionId(session.id);
       const lastActivityAt = this.getLastActivityAt(session, partsBySession, messagesBySession);
-      const status = this.getSessionStatus(
-        session,
-        lastActivityAt,
-        latestToolBySession.get(session.id),
-        latestStepFinishBySession.get(session.id)
-      );
+      const status = this.getSessionStatus(session, lastActivityAt);
       const matchedTask = taskMatches.byChildSessionId.get(session.id);
-
-      const currentToolPart =
-        latestRunningToolBySession.get(session.id) || latestToolBySession.get(session.id);
+      const currentToolPart = latestToolBySession.get(session.id);
+      const latestStepStart = latestStepStartBySession.get(session.id);
 
       nextAgents[session.id] = {
         id: session.id,
@@ -231,7 +218,7 @@ export class OpenCodeParser {
         startedAt: session.timeCreated,
         completedAt: status === 'completed' ? session.timeUpdated : undefined,
         lastMessage: latestAssistantTextBySession.get(session.id),
-        currentTask: this.formatCurrentTask(currentToolPart)
+        currentTask: this.formatCurrentTask(currentToolPart, latestStepStart)
       };
     }
 
@@ -352,29 +339,13 @@ export class OpenCodeParser {
     return latestBySession;
   }
 
-  private static buildLatestRunningToolParts(partsBySession: Map<string, ParsedPart[]>): Map<string, ParsedToolPart> {
-    const latestBySession = new Map<string, ParsedToolPart>();
-
-    for (const [sessionId, parts] of partsBySession.entries()) {
-      for (let index = parts.length - 1; index >= 0; index -= 1) {
-        const part = parts[index];
-        if (part.dataObject?.type === 'tool' && part.dataObject.state?.status === 'running') {
-          latestBySession.set(sessionId, part as ParsedToolPart);
-          break;
-        }
-      }
-    }
-
-    return latestBySession;
-  }
-
-  private static buildLatestStepFinishParts(partsBySession: Map<string, ParsedPart[]>): Map<string, ParsedPart> {
+  private static buildLatestStepStartParts(partsBySession: Map<string, ParsedPart[]>): Map<string, ParsedPart> {
     const latestBySession = new Map<string, ParsedPart>();
 
     for (const [sessionId, parts] of partsBySession.entries()) {
       for (let index = parts.length - 1; index >= 0; index -= 1) {
         const part = parts[index];
-        if (part.dataObject?.type === 'step-finish') {
+        if (part.dataObject?.type === 'step-start') {
           latestBySession.set(sessionId, part);
           break;
         }
@@ -440,15 +411,9 @@ export class OpenCodeParser {
 
   private static getSessionStatus(
     session: OpenCodeSessionRow,
-    lastActivityAt: number,
-    latestToolPart: ParsedToolPart | undefined,
-    latestStepFinish: ParsedPart | undefined
+    lastActivityAt: number
   ): SessionStatus {
     if (session.timeArchived) {
-      return 'completed';
-    }
-
-    if (latestStepFinish?.dataObject?.reason === 'stop') {
       return 'completed';
     }
 
@@ -539,7 +504,21 @@ export class OpenCodeParser {
     return Math.max(latestPart, latestMessage, latestSession);
   }
 
-  private static formatCurrentTask(toolPart: ParsedToolPart | undefined): string | undefined {
+  private static formatCurrentTask(
+    toolPart: ParsedToolPart | undefined,
+    latestStepStart: ParsedPart | undefined
+  ): string | undefined {
+    const toolTimestamp = toolPart
+      ? Math.max(toolPart.timeCreated || 0, toolPart.timeUpdated || 0)
+      : 0;
+    const stepStartTimestamp = latestStepStart
+      ? Math.max(latestStepStart.timeCreated || 0, latestStepStart.timeUpdated || 0)
+      : 0;
+
+    if (stepStartTimestamp > toolTimestamp) {
+      return 'Task started';
+    }
+
     if (!toolPart) {
       return undefined;
     }
