@@ -31,7 +31,7 @@ export interface Agent {
   startedAt: number;
   completedAt?: number;
   lastMessage?: string; // from SubagentStop last_assistant_message
-  currentTask?: string; // from CURRENT_TASK event
+  currentTask?: string; // stable prompt/delegation label for the agent's current work
 }
 
 export interface DelegationEvent {

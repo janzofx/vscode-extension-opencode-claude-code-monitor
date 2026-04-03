@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { StateStore } from '../store';
 import { ClaudeCodeParser } from '../parsers/claudeCode';
-import type { Session, DelegationEvent } from '../types';
+import type { Session, DelegationEvent, Agent } from '../types';
 import type { StateManager } from '../state';
 
 /**
@@ -85,7 +85,10 @@ export class ClaudeCodeWatcher {
     } as Session;
   }
 
-  private async handleNewSession(uri: vscode.Uri): Promise<void> {
+  private async handleNewSession(
+    uri: vscode.Uri,
+    options: { restored?: boolean } = {}
+  ): Promise<void> {
     try {
       const filePath = uri.fsPath;
       let cwd = this.extractCwdFromPath(filePath);
@@ -98,10 +101,14 @@ export class ClaudeCodeWatcher {
       const entries = await ClaudeCodeParser.parseJsonl(filePath);
       const session = ClaudeCodeParser.extractSessionFromJsonl(entries, filePath, cwd);
       const existingSession = this.store.getState().sessions[session.id!];
+      const mergedSession = options.restored
+        ? this.restoreScannedSession(existingSession, session)
+        : this.mergeSessionSnapshot(existingSession, session);
 
       this.store.updateSessions({
-        [session.id!]: this.mergeSessionSnapshot(existingSession, session)
+        [session.id!]: mergedSession
       });
+      this.upsertMainAgent(session.id!, mergedSession, entries);
 
       // Extract delegations from JSONL
       const delegations = ClaudeCodeParser.extractDelegations(entries, session.id!);
@@ -150,9 +157,11 @@ export class ClaudeCodeWatcher {
 
       this.store.updateDelegations(delegationMap);
 
+      const mergedSession = this.mergeSessionSnapshot(existingSession, parsedSession);
       this.store.updateSessions({
-        [sessionId]: this.mergeSessionSnapshot(existingSession, parsedSession)
+        [sessionId]: mergedSession
       });
+      this.upsertMainAgent(sessionId, mergedSession, entries);
       this.stateManager.refreshPanel();
 
       console.log(`[AgentObservatory] Session updated: ${sessionId}`);
@@ -205,7 +214,7 @@ export class ClaudeCodeWatcher {
           }
 
           if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-            await this.handleNewSession(vscode.Uri.file(entryPath));
+            await this.handleNewSession(vscode.Uri.file(entryPath), { restored: true });
           }
         }
       }
@@ -293,5 +302,50 @@ export class ClaudeCodeWatcher {
         return this.claudeProjectsUri;
       }
     }
+  }
+
+  private upsertMainAgent(sessionId: string, session: Session, entries: any[]): void {
+    const currentTask = ClaudeCodeParser.extractCurrentTaskFromJsonl(entries);
+    const existingAgents = (this.store.getState() as any).agents || {};
+    const existingAgent = existingAgents[sessionId] as Agent | undefined;
+
+    const agent: Agent = {
+      id: sessionId,
+      sessionId,
+      parentAgentId: null,
+      agentType: existingAgent?.agentType || 'Claude Code',
+      status: session.status === 'active' ? 'active' : 'completed',
+      startedAt: existingAgent?.startedAt || session.startedAt || Date.now(),
+      completedAt:
+        session.status === 'active'
+          ? undefined
+          : session.completedAt || session.lastActivityAt || existingAgent?.completedAt,
+      lastMessage: existingAgent?.lastMessage,
+      currentTask: currentTask || existingAgent?.currentTask
+    };
+
+    this.store.updateAgents({
+      [sessionId]: agent
+    });
+  }
+
+  private restoreScannedSession(
+    existing: Session | undefined,
+    parsed: Partial<Session>
+  ): Session {
+    const merged = this.mergeSessionSnapshot(existing, parsed);
+
+    if (existing?.status === 'active') {
+      return merged;
+    }
+
+    if (merged.status === 'active') {
+      return {
+        ...merged,
+        status: 'idle'
+      };
+    }
+
+    return merged;
   }
 }

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getVisibleSessionsForFleet } from '../../src/sessionVisibility';
 import { useDashboardStore } from '../store/dashboardStore';
 
 /**
@@ -6,11 +7,14 @@ import { useDashboardStore } from '../store/dashboardStore';
  * Lists all Claude Code, OpenCode, and Codex sessions
  */
 export const SessionList: React.FC = () => {
-  const { sessions, selectedSessionId, selectSession } = useDashboardStore();
-  const [view, setView] = useState<'all' | 'active'>('all');
+  const { sessions, fileEvents, delegations, selectedSessionId, selectSession } = useDashboardStore();
+  const [view, setView] = useState<'recent' | 'active'>('recent');
 
-  const sessionsArray = Object.values(sessions).sort((a, b) => {
-    return b.startedAt - a.startedAt;
+  const sessionsArray = getVisibleSessionsForFleet({
+    sessions,
+    fileEvents,
+    delegations,
+    selectedSessionId
   });
 
   const getToolBadge = (tool: string): string => {
@@ -40,7 +44,7 @@ export const SessionList: React.FC = () => {
     ? sessionsArray.filter(session => session.status === 'active')
     : sessionsArray;
 
-  const emptyMessage = view === 'active' ? 'No active sessions' : 'No sessions yet';
+  const emptyMessage = view === 'active' ? 'No active sessions' : 'No recent sessions';
 
   return (
     <div className="session-list">
@@ -49,10 +53,10 @@ export const SessionList: React.FC = () => {
         <div className="session-list-actions">
           <div className="session-list-filters">
             <button
-              onClick={() => setView('all')}
-              className={view === 'all' ? 'active' : ''}
+              onClick={() => setView('recent')}
+              className={view === 'recent' ? 'active' : ''}
             >
-              All
+              Recent
             </button>
             <button
               onClick={() => setView('active')}
@@ -90,7 +94,7 @@ export const SessionList: React.FC = () => {
                 </div>
                 <div className="session-item-meta">
                   <span className={`tool-badge tool-${session.tool}`}>{getToolBadge(session.tool)}</span>
-                  <span className="session-time">{formatTime(session.startedAt)}</span>
+                  <span className="session-time">{formatTime(session.lastActivityAt ?? session.startedAt)}</span>
                 </div>
                 <div className="session-cwd">{session.cwd}</div>
               </div>

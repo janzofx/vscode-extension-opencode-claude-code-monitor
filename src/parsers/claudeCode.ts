@@ -1,4 +1,9 @@
 import * as fs from 'fs/promises';
+import {
+  deriveStatusLabelFromAssistantMessage,
+  extractTextContent,
+  formatStableTaskLabel
+} from '../taskLabel';
 import type {
   Session,
   Agent,
@@ -147,6 +152,114 @@ export class ClaudeCodeParser {
     }
 
     return delegations;
+  }
+
+  static extractCurrentTaskFromJsonl(entries: JsonlEntry[]): string | undefined {
+    const latestUserPrompt = this.findLatestUserPrompt(entries);
+    if (latestUserPrompt?.label) {
+      return latestUserPrompt.label;
+    }
+
+    if (latestUserPrompt) {
+      const assistantAfterWeakPrompt = this.findLatestAssistantStatus(entries, latestUserPrompt.index + 1);
+      if (assistantAfterWeakPrompt) {
+        return assistantAfterWeakPrompt;
+      }
+
+      const previousStrongUserPrompt = this.findPreviousStrongUserPrompt(entries, latestUserPrompt.index - 1);
+      if (previousStrongUserPrompt) {
+        return previousStrongUserPrompt;
+      }
+    } else {
+      const latestAssistantStatus = this.findLatestAssistantStatus(entries);
+      if (latestAssistantStatus) {
+        return latestAssistantStatus;
+      }
+    }
+
+    return undefined;
+  }
+
+  private static findLatestUserPrompt(
+    entries: JsonlEntry[]
+  ): { index: number; label?: string } | undefined {
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const promptText = this.extractUserPromptText(entries[index]);
+      if (promptText === undefined) {
+        continue;
+      }
+
+      return {
+        index,
+        label: formatStableTaskLabel(promptText)
+      };
+    }
+
+    return undefined;
+  }
+
+  private static findPreviousStrongUserPrompt(entries: JsonlEntry[], endIndex: number): string | undefined {
+    for (let index = endIndex; index >= 0; index -= 1) {
+      const promptText = this.extractUserPromptText(entries[index]);
+      const label = formatStableTaskLabel(promptText);
+      if (label) {
+        return label;
+      }
+    }
+
+    return undefined;
+  }
+
+  private static findLatestAssistantStatus(entries: JsonlEntry[], startIndex: number = 0): string | undefined {
+    for (let index = entries.length - 1; index >= startIndex; index -= 1) {
+      const assistantText = this.extractAssistantMessageText(entries[index]);
+      const assistantLabel = deriveStatusLabelFromAssistantMessage(assistantText);
+      if (assistantLabel) {
+        return assistantLabel;
+      }
+    }
+
+    return undefined;
+  }
+
+  private static extractAssistantMessageText(entry: any): string | undefined {
+    if (!entry || typeof entry !== 'object') {
+      return undefined;
+    }
+
+    if (entry.type === 'assistant') {
+      return extractTextContent(entry.message || entry.content || entry.text);
+    }
+
+    if (entry.type === 'message' && entry.role === 'assistant') {
+      return extractTextContent(entry.content || entry.message || entry.text);
+    }
+
+    if (entry.type === 'response_item' && entry.payload?.type === 'message' && entry.payload.role === 'assistant') {
+      return extractTextContent(entry.payload.content);
+    }
+
+    return undefined;
+  }
+
+  private static extractUserPromptText(entry: any): string | undefined {
+    if (!entry || typeof entry !== 'object') {
+      return undefined;
+    }
+
+    if (entry.type === 'user') {
+      return extractTextContent(entry.message || entry.content || entry.text);
+    }
+
+    if (entry.type === 'message' && entry.role === 'user') {
+      return extractTextContent(entry.content || entry.message || entry.text);
+    }
+
+    if (entry.type === 'response_item' && entry.payload?.type === 'message' && entry.payload.role === 'user') {
+      return extractTextContent(entry.payload.content);
+    }
+
+    return undefined;
   }
 
   private static getProjectName(cwd: string): string {

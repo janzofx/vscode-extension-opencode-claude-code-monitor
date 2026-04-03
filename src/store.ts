@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { prunePersistedState } from './sessionRetention';
 import type { PersistedState, Tool, ToolStateSnapshot } from './types';
 
 const STATE_FILE = 'state.json';
@@ -29,7 +30,7 @@ export class StateStore {
     try {
       const statePath = path.join(this.storagePath, STATE_FILE);
       const content = await fs.readFile(statePath, 'utf-8');
-      this.state = JSON.parse(content);
+      this.state = prunePersistedState(JSON.parse(content));
       console.log('[AgentObservatory] State loaded from disk');
     } catch (error) {
       // File doesn't exist or is corrupted - start with empty state
@@ -51,6 +52,8 @@ export class StateStore {
 
     this.saveTimer = setTimeout(async () => {
       try {
+        this.applyRetention();
+
         // Trim fileEvents to last 1000 entries
         const trimmedFileEvents = this.state.fileEvents.slice(-1000);
 
@@ -77,6 +80,7 @@ export class StateStore {
 
   updateSessions(sessions: Record<string, any>): void {
     this.state.sessions = { ...this.state.sessions, ...sessions };
+    this.applyRetention();
     this.save();
   }
 
@@ -85,11 +89,13 @@ export class StateStore {
       return;
     }
     this.state.sessions[id] = { ...this.state.sessions[id], ...session };
+    this.applyRetention();
     this.save();
   }
 
   updateAgents(agents: Record<string, any>): void {
     this.state.agents = { ...this.state.agents, ...agents };
+    this.applyRetention();
     this.save();
   }
 
@@ -98,11 +104,13 @@ export class StateStore {
       return;
     }
     this.state.agents[id] = { ...this.state.agents[id], ...agent };
+    this.applyRetention();
     this.save();
   }
 
   updateDelegations(delegations: Record<string, any>): void {
     this.state.delegations = { ...this.state.delegations, ...delegations };
+    this.applyRetention();
     this.save();
   }
 
@@ -111,11 +119,13 @@ export class StateStore {
       return;
     }
     this.state.delegations[id] = { ...this.state.delegations[id], ...delegation };
+    this.applyRetention();
     this.save();
   }
 
   addFileEvent(event: any): void {
     this.state.fileEvents.push(event);
+    this.applyRetention();
     this.save();
   }
 
@@ -160,6 +170,7 @@ export class StateStore {
       ...snapshot.fileEvents
     ];
 
+    this.applyRetention();
     this.save();
   }
 
@@ -177,5 +188,9 @@ export class StateStore {
     } catch (error) {
       // File might not exist - that's fine
     }
+  }
+
+  private applyRetention(): void {
+    this.state = prunePersistedState(this.state);
   }
 }

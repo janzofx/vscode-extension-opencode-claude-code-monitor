@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
+import { formatStableTaskLabel } from './taskLabel';
 import type { StateStore } from './store';
 import type {
   Session,
+  SessionStatus,
   Agent,
   DelegationEvent,
   FileEvent,
@@ -62,6 +64,22 @@ export class StateManager {
     this.broadcast({ type: 'INITIAL_STATE', payload: this.getSnapshot() });
   }
 
+  resetTransientSessionsOnStartup(): void {
+    const { sessions } = this.store.getState();
+
+    for (const session of Object.values(sessions)) {
+      if (!['claude-code', 'codex'].includes(session.tool) || session.status !== 'active') {
+        continue;
+      }
+
+      this.store.updateSession(session.id, { status: 'idle' });
+      this.store.updateAgent(session.id, {
+        status: 'completed',
+        completedAt: session.lastActivityAt ?? session.startedAt
+      });
+    }
+  }
+
   markStaleSessionsIdle(): void {
     const now = Date.now();
     const { sessions } = this.store.getState();
@@ -74,6 +92,10 @@ export class StateManager {
       const lastActivityAt = session.lastActivityAt ?? session.startedAt ?? 0;
       if (lastActivityAt > 0 && now - lastActivityAt > StateManager.STALE_ACTIVE_MS) {
         this.store.updateSession(session.id, { status: 'idle' });
+        this.store.updateAgent(session.id, {
+          status: 'completed',
+          completedAt: lastActivityAt
+        });
         this.broadcast({
           type: 'SESSION_UPDATED',
           payload: { id: session.id, status: 'idle' }
@@ -123,18 +145,19 @@ export class StateManager {
 
   private handleSessionStart(payload: any): void {
     const startedAt = Date.now();
+    const status: SessionStatus = 'idle';
     const session: Session = {
       id: payload.session_id,
       tool: 'claude-code',
       cwd: payload.cwd,
       projectName: this.getProjectName(payload.cwd),
-      status: 'active',
+      status,
       startedAt,
       model: payload.model,
       source: payload.source,
       lastActivityAt: startedAt
     };
-    const mainAgent = this.createMainAgent(session.id, startedAt, session.tool);
+    const mainAgent = this.createMainAgent(session.id, startedAt, session.tool, status);
 
     this.store.updateSessions({ [session.id]: session });
     this.store.updateAgents({ [mainAgent.id]: mainAgent });
@@ -143,17 +166,21 @@ export class StateManager {
   }
 
   private handleSubagentStart(payload: any): void {
+    const pendingDelegationId = this.getPendingDelegationId(payload.session_id);
+    const delegationPrompt = pendingDelegationId
+      ? this.store.getState().delegations[pendingDelegationId]?.prompt
+      : undefined;
     const agent: Agent = {
       id: payload.agent_id,
       sessionId: payload.session_id,
       parentAgentId: payload.session_id,
       agentType: payload.agent_type,
       status: 'active',
-      startedAt: Date.now()
+      startedAt: Date.now(),
+      currentTask: formatStableTaskLabel(delegationPrompt)
     };
 
     this.store.updateAgents({ [agent.id]: agent });
-    const pendingDelegationId = this.getPendingDelegationId(payload.session_id);
     if (pendingDelegationId) {
       this.store.updateDelegation(pendingDelegationId, {
         toAgentId: payload.agent_id
@@ -193,20 +220,30 @@ export class StateManager {
   }
 
   private handleStop(payload: any): void {
+    const activityTimestamp = Date.now();
     this.store.updateSession(payload.session_id, {
       status: 'idle',
-      lastActivityAt: Date.now()
+      lastActivityAt: activityTimestamp
+    });
+    this.store.updateAgent(payload.session_id, {
+      status: 'completed',
+      completedAt: activityTimestamp
     });
     this.broadcast({
       type: 'SESSION_UPDATED',
-      payload: { id: payload.session_id, status: 'idle', lastActivityAt: Date.now() }
+      payload: { id: payload.session_id, status: 'idle', lastActivityAt: activityTimestamp }
     });
   }
 
   private handleSessionEnd(payload: any): void {
+    const completedAt = Date.now();
     this.store.updateSession(payload.session_id, {
       status: 'completed',
-      completedAt: Date.now()
+      completedAt
+    });
+    this.store.updateAgent(payload.session_id, {
+      status: 'completed',
+      completedAt
     });
     this.broadcast({
       type: 'SESSION_COMPLETED',
@@ -223,19 +260,16 @@ export class StateManager {
 
   private handlePreToolUse(payload: any): void {
     const toolName = payload.tool_name;
-    const agentId = payload.agent_id || payload.session_id;
-    this.ensureMainAgent(payload.session_id);
+    const activityTimestamp = Date.now();
 
-    // Update current task for agent
-    const currentTask = this.getCurrentTaskLabel(toolName, payload.tool_input);
-    this.store.updateAgent(agentId, { currentTask });
-    this.broadcast({
-      type: 'CURRENT_TASK',
-      payload: {
-        sessionId: payload.session_id,
-        agentId,
-        task: currentTask
-      }
+    this.store.updateSession(payload.session_id, {
+      status: 'active',
+      lastActivityAt: activityTimestamp
+    });
+    this.ensureMainAgent(payload.session_id);
+    this.store.updateAgent(payload.session_id, {
+      status: 'active',
+      completedAt: undefined
     });
 
     // Track file activity for Read/Write/Edit tools
@@ -245,7 +279,7 @@ export class StateManager {
         agentId: payload.session_id,
         filePath: payload.tool_input.file_path || payload.tool_input.path || payload.tool_input.command || 'unknown',
         operation: this.getOperationFromToolName(toolName),
-        createdAt: Date.now()
+        createdAt: activityTimestamp
       };
       this.store.addFileEvent(fileEvent);
       this.broadcast({ type: 'FILE_ACTIVITY', payload: fileEvent });
@@ -260,17 +294,11 @@ export class StateManager {
         toAgentId: 'pending', // Will be linked on SubagentStart
         prompt: payload.tool_input.description || payload.tool_input.task_description || 'No description',
         status: 'pending',
-        createdAt: Date.now()
+        createdAt: activityTimestamp
       };
       this.store.updateDelegations({ [delegation.id]: delegation });
       this.broadcast({ type: 'DELEGATION_STARTED', payload: delegation });
     }
-
-    // Update session last activity
-    this.store.updateSession(payload.session_id, {
-      status: 'active',
-      lastActivityAt: Date.now()
-    });
   }
 
   private handlePostToolUse(payload: any): void {
@@ -319,18 +347,24 @@ export class StateManager {
     }
 
     this.store.updateAgents({
-      [sessionId]: this.createMainAgent(sessionId, session.startedAt, session.tool)
+      [sessionId]: this.createMainAgent(sessionId, session.startedAt, session.tool, session.status)
     });
   }
 
-  private createMainAgent(sessionId: string, startedAt: number, tool: string): Agent {
+  private createMainAgent(
+    sessionId: string,
+    startedAt: number,
+    tool: string,
+    sessionStatus: SessionStatus = 'active'
+  ): Agent {
     return {
       id: sessionId,
       sessionId,
       parentAgentId: null,
       agentType: this.getMainAgentType(tool),
-      status: 'active',
-      startedAt
+      status: sessionStatus === 'active' ? 'active' : 'completed',
+      startedAt,
+      completedAt: sessionStatus === 'active' ? undefined : startedAt
     };
   }
 

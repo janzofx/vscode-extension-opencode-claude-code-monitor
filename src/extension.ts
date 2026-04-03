@@ -21,6 +21,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Initialize state manager
   const stateManager = new StateManager(stateStore);
+  stateManager.resetTransientSessionsOnStartup();
   stateManager.markStaleSessionsIdle();
 
   const getHookPort = (): number => {

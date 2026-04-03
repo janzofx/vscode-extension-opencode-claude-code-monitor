@@ -1,5 +1,10 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import {
+  deriveStatusLabelFromAssistantMessage,
+  extractTextContent,
+  formatStableTaskLabel
+} from '../taskLabel';
 import type {
   Agent,
   CodexStateSnapshot,
@@ -24,6 +29,20 @@ interface CodexFunctionCallPayload {
   name: string;
   arguments?: string | Record<string, any>;
   call_id?: string;
+}
+
+interface CodexCustomToolCallPayload {
+  type: 'custom_tool_call';
+  name: string;
+  input?: string | Record<string, any>;
+  call_id?: string;
+}
+
+interface CodexWebSearchCallPayload {
+  type: 'web_search_call';
+  action?: {
+    query?: string;
+  };
 }
 
 interface CodexMessagePayload {
@@ -176,6 +195,33 @@ export class CodexParser {
   }
 
   private static getCurrentTask(entries: CodexLogEntry[]): string | undefined {
+    const liveTaskLabel = this.findLiveTaskLabel(entries);
+    if (liveTaskLabel) {
+      return liveTaskLabel;
+    }
+
+    const latestUserPrompt = this.findLatestUserPrompt(entries);
+    if (latestUserPrompt?.label) {
+      return latestUserPrompt.label;
+    }
+
+    if (latestUserPrompt) {
+      const assistantAfterWeakPrompt = this.findLatestAssistantStatus(entries, latestUserPrompt.index + 1);
+      if (assistantAfterWeakPrompt) {
+        return assistantAfterWeakPrompt;
+      }
+
+      const previousStrongUserPrompt = this.findPreviousStrongUserPrompt(entries, latestUserPrompt.index - 1);
+      if (previousStrongUserPrompt) {
+        return previousStrongUserPrompt;
+      }
+    } else {
+      const latestAssistantStatus = this.findLatestAssistantStatus(entries);
+      if (latestAssistantStatus) {
+        return latestAssistantStatus;
+      }
+    }
+
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const entry = entries[index];
 
@@ -191,6 +237,149 @@ export class CodexParser {
         const payload = entry.payload as CodexEventMessagePayload | undefined;
         if (payload?.type === 'task_started') {
           return 'Task started';
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private static findLiveTaskLabel(entries: CodexLogEntry[]): string | undefined {
+    const activeTaskStartIndex = this.findActiveTaskStartIndex(entries);
+    if (activeTaskStartIndex === undefined) {
+      return undefined;
+    }
+
+    for (let index = entries.length - 1; index >= activeTaskStartIndex; index -= 1) {
+      const entry = entries[index];
+      if (entry.type !== 'response_item') {
+        continue;
+      }
+
+      const payload = entry.payload as
+        | CodexFunctionCallPayload
+        | CodexCustomToolCallPayload
+        | CodexWebSearchCallPayload
+        | CodexMessagePayload
+        | undefined;
+
+      if (payload?.type === 'function_call' && payload.name) {
+        return this.formatFunctionCallTask(payload.name, this.parseArguments(payload.arguments));
+      }
+
+      if (payload?.type === 'custom_tool_call' && payload.name) {
+        return this.formatFunctionCallTask(payload.name, this.parseArguments(payload.input));
+      }
+
+      if (payload?.type === 'web_search_call') {
+        const query = payload.action?.query?.trim();
+        if (query) {
+          return `web_search: ${this.previewText(query)}`;
+        }
+
+        return 'web_search';
+      }
+    }
+
+    return undefined;
+  }
+
+  private static findActiveTaskStartIndex(entries: CodexLogEntry[]): number | undefined {
+    let latestTaskStartIndex: number | undefined;
+    let latestTaskTerminalIndex: number | undefined;
+
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      if (entry.type !== 'event_msg') {
+        continue;
+      }
+
+      const payload = entry.payload as CodexEventMessagePayload | undefined;
+      if (payload?.type === 'task_started') {
+        latestTaskStartIndex = index;
+      }
+
+      if (payload?.type === 'task_complete' || payload?.type === 'turn_aborted') {
+        latestTaskTerminalIndex = index;
+      }
+    }
+
+    if (latestTaskStartIndex === undefined) {
+      return undefined;
+    }
+
+    if (latestTaskTerminalIndex !== undefined && latestTaskTerminalIndex > latestTaskStartIndex) {
+      return undefined;
+    }
+
+    return latestTaskStartIndex;
+  }
+
+  private static findLatestUserPrompt(
+    entries: CodexLogEntry[]
+  ): { index: number; label?: string } | undefined {
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index];
+      if (entry.type !== 'response_item') {
+        continue;
+      }
+
+      const payload = entry.payload as CodexFunctionCallPayload | CodexMessagePayload | undefined;
+      if (payload?.type !== 'message' || payload.role !== 'user') {
+        continue;
+      }
+
+      return {
+        index,
+        label: formatStableTaskLabel(extractTextContent(payload.content))
+      };
+    }
+
+    return undefined;
+  }
+
+  private static findPreviousStrongUserPrompt(entries: CodexLogEntry[], endIndex: number): string | undefined {
+    for (let index = endIndex; index >= 0; index -= 1) {
+      const entry = entries[index];
+      if (entry.type !== 'response_item') {
+        continue;
+      }
+
+      const payload = entry.payload as CodexFunctionCallPayload | CodexMessagePayload | undefined;
+      if (payload?.type !== 'message' || payload.role !== 'user') {
+        continue;
+      }
+
+      const label = formatStableTaskLabel(extractTextContent(payload.content));
+      if (label) {
+        return label;
+      }
+    }
+
+    return undefined;
+  }
+
+  private static findLatestAssistantStatus(entries: CodexLogEntry[], startIndex: number = 0): string | undefined {
+    for (let index = entries.length - 1; index >= startIndex; index -= 1) {
+      const entry = entries[index];
+
+      if (entry.type === 'response_item') {
+        const payload = entry.payload as CodexFunctionCallPayload | CodexMessagePayload | undefined;
+        if (payload?.type === 'message' && payload.role === 'assistant') {
+          const label = deriveStatusLabelFromAssistantMessage(extractTextContent(payload.content));
+          if (label) {
+            return label;
+          }
+        }
+      }
+
+      if (entry.type === 'event_msg') {
+        const payload = entry.payload as CodexEventMessagePayload | undefined;
+        if (payload?.type === 'agent_message') {
+          const label = deriveStatusLabelFromAssistantMessage(payload.message);
+          if (label) {
+            return label;
+          }
         }
       }
     }

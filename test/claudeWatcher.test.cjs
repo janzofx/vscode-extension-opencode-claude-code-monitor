@@ -49,6 +49,7 @@ class FakeStore {
   constructor() {
     this.state = {
       sessions: {},
+      agents: {},
       delegations: {}
     };
   }
@@ -63,6 +64,10 @@ class FakeStore {
 
   updateDelegations(delegations) {
     this.state.delegations = { ...this.state.delegations, ...delegations };
+  }
+
+  updateAgents(agents) {
+    this.state.agents = { ...this.state.agents, ...agents };
   }
 }
 
@@ -93,6 +98,27 @@ test('Claude parser uses the latest transcript event as last activity and marks 
   assert.equal(session.startedAt, startedAt);
   assert.equal(session.lastActivityAt, lastActivityAt);
   assert.equal(session.status, 'idle');
+});
+
+test('Claude parser extracts a stable currentTask from the latest user prompt', () => {
+  const currentTask = ClaudeCodeParser.extractCurrentTaskFromJsonl([
+    { type: 'assistant', timestamp: 1 },
+    {
+      type: 'user',
+      timestamp: 2,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: 'update all docs in the codebase'
+          }
+        ]
+      }
+    },
+    { type: 'tool_use', id: 'tool-1', name: 'Read', input: {}, timestamp: 3 }
+  ]);
+
+  assert.equal(currentTask, 'Updating all docs in the codebase');
 });
 
 test('Claude watcher keeps stale sessions idle when an old transcript file changes', async () => {
@@ -126,6 +152,17 @@ test('Claude watcher keeps stale sessions idle when an old transcript file chang
       model: 'claude-sonnet'
     }
   });
+  store.updateAgents({
+    'session-1': {
+      id: 'session-1',
+      sessionId: 'session-1',
+      parentAgentId: null,
+      agentType: 'Claude Code',
+      status: 'active',
+      startedAt,
+      currentTask: 'Old task'
+    }
+  });
 
   const stateManager = new FakeStateManager();
   const watcher = new ClaudeCodeWatcher(store, stateManager);
@@ -138,7 +175,117 @@ test('Claude watcher keeps stale sessions idle when an old transcript file chang
   assert.equal(store.getState().sessions['session-1'].projectName, 'Real');
   assert.equal(store.getState().sessions['session-1'].source, 'startup');
   assert.equal(store.getState().sessions['session-1'].model, 'claude-sonnet');
+  assert.equal(store.getState().agents['session-1'].currentTask, 'Old task');
   assert.equal(stateManager.refreshCount, 1);
+});
+
+test('Claude watcher backfills the main agent currentTask from transcript user prompts', async () => {
+  process.env.USERPROFILE ||= os.tmpdir();
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-watcher-task-test-'));
+  const sessionPath = path.join(tempDir, 'session-2.jsonl');
+  const now = Date.now();
+
+  fs.writeFileSync(
+    sessionPath,
+    [
+      {
+        type: 'user',
+        timestamp: now - 1000,
+        message: {
+          content: [
+            {
+              type: 'text',
+              text: 'fix the task label behavior'
+            }
+          ]
+        }
+      },
+      { type: 'assistant', timestamp: now - 500 }
+    ].map(entry => JSON.stringify(entry)).join('\n')
+  );
+
+  const store = new FakeStore();
+  store.updateSessions({
+    'session-2': {
+      id: 'session-2',
+      tool: 'claude-code',
+      cwd: 'C:/Projects/Test',
+      projectName: 'Test',
+      status: 'active',
+      startedAt: now - 1000,
+      lastActivityAt: now - 500,
+      source: 'startup',
+      model: 'claude-sonnet'
+    }
+  });
+  store.updateAgents({
+    'session-2': {
+      id: 'session-2',
+      sessionId: 'session-2',
+      parentAgentId: null,
+      agentType: 'Claude Code',
+      status: 'active',
+      startedAt: now - 1000
+    }
+  });
+
+  const stateManager = new FakeStateManager();
+  const watcher = new ClaudeCodeWatcher(store, stateManager);
+
+  await watcher.handleSessionUpdate({ fsPath: sessionPath });
+
+  assert.equal(store.getState().agents['session-2'].currentTask, 'Fixing the task label behavior');
+  assert.equal(stateManager.refreshCount, 1);
+});
+
+test('Claude startup scan restores fresh transcripts as idle until live activity arrives', async () => {
+  process.env.USERPROFILE ||= os.tmpdir();
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-watcher-startup-test-'));
+  const sessionPath = path.join(tempDir, 'session-3.jsonl');
+  const now = Date.now();
+
+  fs.writeFileSync(
+    sessionPath,
+    [
+      {
+        type: 'user',
+        timestamp: now - 1000,
+        message: {
+          content: [
+            {
+              type: 'text',
+              text: 'statusline'
+            }
+          ]
+        }
+      },
+      {
+        type: 'assistant',
+        timestamp: now - 500,
+        message: {
+          content: [
+            {
+              type: 'text',
+              text: 'Status dialog dismissed'
+            }
+          ]
+        }
+      }
+    ].map(entry => JSON.stringify(entry)).join('\n')
+  );
+
+  const store = new FakeStore();
+  const stateManager = new FakeStateManager();
+  const watcher = new ClaudeCodeWatcher(store, stateManager);
+  watcher.claudeWatchUri = { fsPath: tempDir };
+
+  await watcher.scanExistingSessions();
+
+  assert.equal(store.getState().sessions['session-3'].status, 'idle');
+  assert.equal(store.getState().sessions['session-3'].lastActivityAt, now - 500);
+  assert.equal(stateManager.refreshCount, 2);
 });
 
 test.after(() => {

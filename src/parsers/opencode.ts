@@ -1,4 +1,9 @@
 import * as path from 'path';
+import {
+  deriveStatusLabelFromAssistantMessage,
+  extractTextContent,
+  formatStableTaskLabel
+} from '../taskLabel';
 import type {
   Agent,
   DelegationEvent,
@@ -150,9 +155,10 @@ export class OpenCodeParser {
 
     const messagesBySession = this.groupBySession(parsedMessages);
     const partsBySession = this.groupBySession(parsedParts);
+    const messagesById = new Map(parsedMessages.map(message => [message.id, message]));
     const latestAssistantTextBySession = this.buildLatestAssistantText(partsBySession);
     const latestToolBySession = this.buildLatestToolParts(partsBySession);
-    const latestStepStartBySession = this.buildLatestStepStartParts(partsBySession);
+    const latestContextTaskBySession = this.buildLatestContextTaskText(partsBySession, messagesById);
     const taskMatches = this.matchTaskDelegations(parsedParts, sessionsById);
 
     const nextSessions: Record<string, Session> = {};
@@ -170,7 +176,6 @@ export class OpenCodeParser {
       const status = this.getSessionStatus(session, lastActivityAt);
       const model = this.getSessionModel(messagesBySession.get(session.id) || []);
       const currentToolPart = latestToolBySession.get(session.id);
-      const latestStepStart = latestStepStartBySession.get(session.id);
 
       nextSessions[session.id] = {
         id: session.id,
@@ -193,7 +198,7 @@ export class OpenCodeParser {
         startedAt: session.timeCreated,
         completedAt: status === 'completed' ? session.timeUpdated : undefined,
         lastMessage: latestAssistantTextBySession.get(session.id),
-        currentTask: this.formatCurrentTask(currentToolPart, latestStepStart)
+        currentTask: latestContextTaskBySession.get(session.id) || this.formatCurrentTask(currentToolPart)
       };
     }
 
@@ -207,7 +212,6 @@ export class OpenCodeParser {
       const status = this.getSessionStatus(session, lastActivityAt);
       const matchedTask = taskMatches.byChildSessionId.get(session.id);
       const currentToolPart = latestToolBySession.get(session.id);
-      const latestStepStart = latestStepStartBySession.get(session.id);
 
       nextAgents[session.id] = {
         id: session.id,
@@ -218,7 +222,10 @@ export class OpenCodeParser {
         startedAt: session.timeCreated,
         completedAt: status === 'completed' ? session.timeUpdated : undefined,
         lastMessage: latestAssistantTextBySession.get(session.id),
-        currentTask: this.formatCurrentTask(currentToolPart, latestStepStart)
+        currentTask:
+          (matchedTask ? this.getDelegationPrompt(matchedTask) : undefined) ||
+          latestContextTaskBySession.get(session.id) ||
+          this.formatCurrentTask(currentToolPart)
       };
     }
 
@@ -339,20 +346,111 @@ export class OpenCodeParser {
     return latestBySession;
   }
 
-  private static buildLatestStepStartParts(partsBySession: Map<string, ParsedPart[]>): Map<string, ParsedPart> {
-    const latestBySession = new Map<string, ParsedPart>();
+  private static buildLatestContextTaskText(
+    partsBySession: Map<string, ParsedPart[]>,
+    messagesById: Map<string, ParsedMessage>
+  ): Map<string, string> {
+    const latestBySession = new Map<string, string>();
 
     for (const [sessionId, parts] of partsBySession.entries()) {
-      for (let index = parts.length - 1; index >= 0; index -= 1) {
-        const part = parts[index];
-        if (part.dataObject?.type === 'step-start') {
-          latestBySession.set(sessionId, part);
-          break;
-        }
+      const label = this.resolveSessionContextTask(parts, messagesById);
+      if (label) {
+        latestBySession.set(sessionId, label);
       }
     }
 
     return latestBySession;
+  }
+
+  private static resolveSessionContextTask(
+    parts: ParsedPart[],
+    messagesById: Map<string, ParsedMessage>
+  ): string | undefined {
+    const latestUserPrompt = this.findLatestUserPrompt(parts, messagesById);
+    if (latestUserPrompt?.label) {
+      return latestUserPrompt.label;
+    }
+
+    if (latestUserPrompt) {
+      const assistantAfterWeakPrompt = this.findLatestAssistantStatus(parts, messagesById, latestUserPrompt.index + 1);
+      if (assistantAfterWeakPrompt) {
+        return assistantAfterWeakPrompt;
+      }
+
+      const previousStrongUserPrompt = this.findPreviousStrongUserPrompt(parts, messagesById, latestUserPrompt.index - 1);
+      if (previousStrongUserPrompt) {
+        return previousStrongUserPrompt;
+      }
+    } else {
+      const latestAssistantStatus = this.findLatestAssistantStatus(parts, messagesById);
+      if (latestAssistantStatus) {
+        return latestAssistantStatus;
+      }
+    }
+
+    return undefined;
+  }
+
+  private static findLatestUserPrompt(
+    parts: ParsedPart[],
+    messagesById: Map<string, ParsedMessage>
+  ): { index: number; label?: string } | undefined {
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+      const part = parts[index];
+      const message = messagesById.get(part.messageId);
+      if (message?.dataObject?.role !== 'user') {
+        continue;
+      }
+
+      return {
+        index,
+        label: formatStableTaskLabel(extractTextContent(part.dataObject))
+      };
+    }
+
+    return undefined;
+  }
+
+  private static findPreviousStrongUserPrompt(
+    parts: ParsedPart[],
+    messagesById: Map<string, ParsedMessage>,
+    endIndex: number
+  ): string | undefined {
+    for (let index = endIndex; index >= 0; index -= 1) {
+      const part = parts[index];
+      const message = messagesById.get(part.messageId);
+      if (message?.dataObject?.role !== 'user') {
+        continue;
+      }
+
+      const label = formatStableTaskLabel(extractTextContent(part.dataObject));
+      if (label) {
+        return label;
+      }
+    }
+
+    return undefined;
+  }
+
+  private static findLatestAssistantStatus(
+    parts: ParsedPart[],
+    messagesById: Map<string, ParsedMessage>,
+    startIndex: number = 0
+  ): string | undefined {
+    for (let index = parts.length - 1; index >= startIndex; index -= 1) {
+      const part = parts[index];
+      const message = messagesById.get(part.messageId);
+      if (message?.dataObject?.role !== 'assistant') {
+        continue;
+      }
+
+      const label = deriveStatusLabelFromAssistantMessage(extractTextContent(part.dataObject));
+      if (label) {
+        return label;
+      }
+    }
+
+    return undefined;
   }
 
   private static matchTaskDelegations(
@@ -504,21 +602,7 @@ export class OpenCodeParser {
     return Math.max(latestPart, latestMessage, latestSession);
   }
 
-  private static formatCurrentTask(
-    toolPart: ParsedToolPart | undefined,
-    latestStepStart: ParsedPart | undefined
-  ): string | undefined {
-    const toolTimestamp = toolPart
-      ? Math.max(toolPart.timeCreated || 0, toolPart.timeUpdated || 0)
-      : 0;
-    const stepStartTimestamp = latestStepStart
-      ? Math.max(latestStepStart.timeCreated || 0, latestStepStart.timeUpdated || 0)
-      : 0;
-
-    if (stepStartTimestamp > toolTimestamp) {
-      return 'Task started';
-    }
-
+  private static formatCurrentTask(toolPart: ParsedToolPart | undefined): string | undefined {
     if (!toolPart) {
       return undefined;
     }
@@ -551,7 +635,7 @@ export class OpenCodeParser {
 
     for (const candidate of candidates) {
       if (typeof candidate === 'string' && candidate.trim()) {
-        return candidate.trim();
+        return formatStableTaskLabel(candidate.trim()) || candidate.trim();
       }
     }
 
