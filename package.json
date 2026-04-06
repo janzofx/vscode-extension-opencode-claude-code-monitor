@@ -2,7 +2,7 @@
   "name": "agent-observatory",
   "displayName": "Agent Observatory",
   "description": "Read-only monitoring dashboard for Claude Code, OpenCode, and Codex sessions in VS Code",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "janzofx",
   "license": "MIT",
   "homepage": "https://github.com/janzofx/vscode-extension-opencode-claude-code-monitor#readme",
@@ -57,7 +57,13 @@
     "vscode:prepublish": "npm run compile",
     "compile": "webpack --mode production",
     "watch": "webpack --mode development --watch",
-    "package": "vsce package"
+    "package": "vsce package",
+    "version:patch": "npm version patch --no-git-tag-version",
+    "version:minor": "npm version minor --no-git-tag-version",
+    "version:major": "npm version major --no-git-tag-version",
+    "release:patch": "npm run version:patch && npm run package",
+    "release:minor": "npm run version:minor && npm run package",
+    "release:major": "npm run version:major && npm run package"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",

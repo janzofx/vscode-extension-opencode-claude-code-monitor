@@ -255,6 +255,8 @@ The default list is now effectively a **recent, useful sessions** view, not a ra
 | `npm run watch` | Start webpack in watch mode for development |
 | `npm run compile` | Build production extension and webview bundles |
 | `npm run package` | Build a `.vsix` package |
+| `npm run version:patch` | Bump the extension version without creating a git tag |
+| `npm run release:patch` | Bump the patch version and build a fresh `.vsix` |
 | `node --test test\\*.cjs` | Run the current test suite |
 
 ## Development Workflow
@@ -393,6 +395,22 @@ The extension now prunes its own stored session state after 7 days. Older histor
 Build a distributable VSIX:
 
 ```bash
+npm run package
+```
+
+If you are publishing an update to the marketplace, bump the extension version first. `vsce` uses the version in
+`package.json`; rebuilding alone will not increment it.
+
+Fastest patch release flow:
+
+```bash
+npm run release:patch
+```
+
+You can also bump the version manually first:
+
+```bash
+npm run version:patch
 npm run package
 ```
 
